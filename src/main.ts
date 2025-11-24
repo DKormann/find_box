@@ -7,6 +7,7 @@ export {}
 const doc = div(
   {class: "document",
     style:{
+      padding: "1em",
       width: "100v%",
       "font-family": "sans-serif",
     }
@@ -15,6 +16,7 @@ const doc = div(
 )
 
 document.body.appendChild(doc)
+
 
 function put(el:HTMLElement){
   doc.append(el)
@@ -68,140 +70,173 @@ function broadcast(x: any, y: any){
   return [to_shape(x, s2), to_shape(y, s1)]
 }
 
-type Atom = "block" | "color" | "value"
+type Dtype = "block" | "color" | "value"
 type Shape = "scalar" | "arr"
 type Color = 0 | 1 | 2 | 3
 
 
 
 type BufferType = {
+  tag: "buffer"
   atom : "block" | "color" | "value"
   shape : "scalar" | "arr"
 }
 
 
-function BufferType(atom: Atom, shape: Shape): BufferType{return {atom, shape}}
+function BufferType(atom: Dtype, shape: Shape): BufferType{return {tag:"buffer", atom, shape}}
+const ScalarType = (atom: Dtype) => BufferType(atom, "scalar")
 const ScalarBlockType = BufferType("block", "scalar")
 const ScalarColorType = BufferType("color", "scalar")
 const ScalarValueType = BufferType("value", "scalar")
+const BlockType = (atom: Dtype) => BufferType(atom, "arr")
 const ArrBlockType = BufferType("block", "arr")
 const ArrColorType = BufferType("color", "arr")
 const ArrValueType = BufferType("value", "arr")
 
+const ScalarConst = (atom: Dtype, value: number): Buffer => ({T: BufferType(atom, "scalar"), run: () => value})
 
-const ScalarConst = (T: BufferType, value: number): Buffer => ({ tag: "buffer", T,  run: () => value})
+type Raw = number | number[]
 
 type Buffer = {
-  tag: "buffer"
   T: BufferType
-  run: () => number | number[]
+  run: () => Raw
 }
 
+type Runner = (x:Raw) => Raw | Runner
 
+type FunT = {
+  tag: "fun"
+  try: (x: BufferType) => AstT | null
+}
 
+type AstT = BufferType | FunT
 
 type Fun = {
-  tag: "fun"
-  try: (x: BufferType) => Ast | null
+  T: FunT,
+  run: Runner
 }
 
-type Ast = Buffer | Fun
+type Ast = Fun | Buffer
 
-const ID: Ast = {
-  tag: "fun",
-  try: (b: Buffer) => b
+
+const ID: Fun = {
+  T: {
+    tag: "fun",
+    try: (x: BufferType) => x
+  },
+  run: (x: Raw) => x
 }
 
-const RED: Ast = ScalarConst(ScalarColorType, 1)
-const C1: Ast = ScalarConst(ScalarValueType, 1)
-const RED1: Ast = ScalarConst(ScalarBlockType, 1)
+const RED: Ast = ScalarConst("color", 1)
+const C1: Ast = ScalarConst("value", 1)
+const RED1: Ast = ScalarConst("block", 1)
 
 
-const s_EQ: Ast = {
-  tag: "fun",
-  try: (x: Buffer) =>{
-    if (x.T.shape != "scalar") return null
-    return {
+
+type inPattern<T> = T | ((x:T) => boolean)
+type outPattern<T> = T | ((x:T) => T)
+
+const check_pattern = <T>(x: T, pattern: inPattern<T>): boolean => {
+  if (typeof pattern === "function") return (pattern as (x:T) => boolean)(x)
+  return x === pattern
+}
+
+
+const app_pattern = <T>(p: outPattern<T>, x: T): T => {
+  if (typeof p === "function") return (p as (x:T) => T)(x)
+  return p
+}
+
+
+
+const s_unary = (iT: inPattern<Dtype>, oT: outPattern<Dtype>, f: (x: number)=> number): Ast => {
+  return {
+    T: {
       tag: "fun",
-      try: (y: Buffer) =>{
-        if (x.T.atom == y.T.atom && x.T.shape == y.T.shape){
-          return {
-            tag: "buffer",
-            T:  ScalarValueType,
-            run: () => String(x.run()) == String(y.run()) ? 1 : 0
-          }
-        }
-        return null
-      }
-    }
-  }
-}
-
-const s_unary = (f: (x: number)=> number): Ast => {
-  return {
-    tag: "fun",
-    try: (x: Buffer) => {
-      if (x.T.shape != "scalar") return null
-      return {
-        tag: "buffer",
-        T: ScalarValueType,
-        run: () => f(x.run() as number)
-      }
-    }
+      try: (x: BufferType) => {
+        if (!check_pattern(x.atom, iT)) return null;
+        if (x.shape != "scalar") return null;
+        return ScalarType(app_pattern(oT, x.atom))
+      },
+    },
+    run: (x: Raw) => f(x as number)
   }
 }
 
 
-
-const dummy = (T: BufferType): Buffer => ({
-  tag: "buffer",
-  T,
-  run: () => {throw new Error("Dummy buffer")}
-})
-
-
-const unary = (f: Fun) => {
+const s_binary = (iT: inPattern<Dtype>, iT2: inPattern<Dtype>, oT: outPattern<Dtype>, f: (x: number, y: number)=> number): Ast => {
   return {
-    tag: "fun",
-    try: (x: Buffer) => {
-      if (x.T.shape == "scalar") return f.try(x)
-      if (x.T.shape == "arr"){
-        let T : BufferType = {...x.T, shape: "scalar"};
-        let frun = f.try(dummy(T));
-        if (frun == null) return null;
-        { return {
-          tag : "buffer",
-          T: {
-            shape: "arr",
-            atom: x.T.atom,
+    T: {
+      tag: "fun",
+      try: (x: BufferType) => {
+        if (!check_pattern(x.atom, iT)) return null;
+        if (x.shape != "scalar") return null;
+
+        return {tag: "fun",
+          try: (y: BufferType) => {
+            if (!check_pattern(y.atom, iT2)) return null;
+            if (y.shape != "scalar") return null;
+            return ScalarType(app_pattern(oT, x.atom))
           },
-          run: () => (x.run() as number[]).map(x=>f.try(
         }
-      }}
-    }
+
+      },
+    },
+    run: (x: Raw) => (y: Raw) =>{
+      console.log("binapp run:", x, y)
+      return f(x as number, y as number)}
   }
 }
 
 
-const s_add_1 : Ast = s_unary(x => x + 1)
+const s_inc = s_unary("value", "value", x => x + 1)
 
-log(s_add_1)
+let x = s_inc.run(C1.run())
+
+log(x)
 
 
-function app(a: Ast, b: Ast): Ast | null{
+
+function appT(a: AstT, b: AstT): AstT | null{
   if (a.tag == "fun"){
-    if (b.tag == "buffer"){
-      return a.try(b)
-    }else{
-      return {
-        tag: "fun",
-        try: (x: Buffer) => app(a, b.try(x))
-      }
-    }
+    if (b.tag == "fun") return {tag: "fun", try: (x: BufferType) => appT(a, b.try(x))}
+    return a.try(b as BufferType)
   }
   return null
 }
 
 
-let x = app(s_add_1, app(s_add_1, C1))
+const s_add = s_binary("value", "value", "value", (x, y) => x + y)
 
+log(appT(appT(s_add.T, C1.T), C1.T))
+
+
+function app(a: Ast, b: Ast) : Ast | null{
+
+  let T = appT(a.T, b.T)
+  let temp = b.run;
+
+  let run : Raw | Runner = (x: Raw) : Raw | Runner => {
+
+    let y = temp(x);
+    if (y instanceof Function){
+      temp = y;
+      return run;
+    }
+    return a.run(y);
+  }
+
+  if (T.tag == "buffer"){
+    if (T.tag == "buffer"){
+      return { T, run: ()=> a.run((b as Buffer).run()) as Raw}
+    }
+  }else{
+    if (b.T.tag == "buffer") return { T, run: (x: Raw) => (a.run((b as Buffer).run()) as Runner) (x) }
+    return {T, run}
+  }
+}
+
+
+let r = app(app(s_add, C1), ScalarConst("value", 2))
+
+log(r.run())
