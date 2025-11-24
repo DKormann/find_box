@@ -188,6 +188,46 @@ const s_binary = (iT: inPattern<Dtype>, iT2: inPattern<Dtype>, oT: outPattern<Dt
   }
 }
 
+function unary = (iT: inPattern<Dtype>, oT: outPattern<Dtype>, f: (x: number)=> number): Ast => {
+  return {
+    T: {
+      tag: "fun",
+      try: (x: BufferType) => {
+
+        if (!check_pattern(x.atom, iT)) return null;
+        return {
+          tag: "fun",
+          try: (y: BufferType) => {
+            if (!check_pattern(y.atom, iT) || x.atom != y.atom) return null;
+
+          }
+        }
+
+      }
+    }
+  }
+}
+
+
+const bin_arit_T : FunT = {
+  tag: "fun",
+  try: (x: BufferType) => {
+    if (x.atom != "value" && x.atom != "block") return null
+    return {tag: "fun", 
+      try: (y: BufferType) => {
+        if (y.atom != "value" && y.atom != "block") return null
+        return BufferType("value", x.shape == "arr" || y.shape == "arr" ? "arr" : "scalar")
+      }
+    }
+  }
+}
+
+const binary = (T: FunT, f: (x: number, y: number)=> number): Ast => {
+
+  T, run: (x: Raw) => (y: Raw) => 
+
+}
+
 
 const s_inc = s_unary("value", "value", x => x + 1)
 
@@ -237,6 +277,10 @@ function app(a: Ast, b: Ast) : Ast | null{
 }
 
 
+
+
 let r = app(app(s_add, C1), ScalarConst("value", 2))
+
+
 
 log(r.run())
