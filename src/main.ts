@@ -29,25 +29,19 @@ function log(...el:(string | Object) []){
 
 
 const blockSize = "40px";
-
 const colors = ["black", "red", "green", "#0044FF", "white"]
 
+type Kind = "block" | "color" | "value" | ["maybe", Kind] | ["matrix", Kind]
 
-type Kind = "block" | "color" | "value"
-type Shape = "scalar" | "arr"
 type Color = 0 | 1 | 2 | 3
 
-
-
 type DataType = {
-  kind: "block" | "color" | "value"
+  kind: Kind,
   shape: "scalar" | "arr"
 }
 
 type Raw = [number] | number[];
-
 type Runner = (x: Raw[]) => Raw
-
 
 type Fun = {
   arity: number
@@ -58,8 +52,89 @@ type Fun = {
 }
 
 
+
+const view_scalar = (kind: Kind, num: number)=>{
+  let color = get_color(kind, num);
+  let content = kind == "value" ? num : kind == "block" ? ( num ? (num - color) / 3 + 1 : "") : "";
+  return div({
+    style:{
+      width: blockSize,
+      height: blockSize,
+      "color": colors[color],
+      "background-color": kind == "color" ? colors[color] : "none",
+      "text-align": "center",
+      "font-size": blockSize,
+      "font-weight": "bold",
+    },
+  }, content)
+}
+
+
+const view = (...fs: Fun[]) => {
+  let f = chain(...fs);
+  if (f.arity == 0){
+    let T = f.T([]);
+    let dat = T.run([]);
+    if (T.dtype.shape == "scalar") put(view_scalar(T.dtype.kind, dat[0]));
+    else{
+      put(div({style:{
+        display: "flex",
+        "flex-wrap": "wrap",
+        "background-color": "#111",
+        border: "1px solid #888",
+        "width": `calc(${blockSize} * 4)`
+      }}, ...(dat as number[]).map(x => view_scalar(T.dtype.kind, x))));
+    }
+  }
+
+  else log(`FUN(${Array.from({length: f.arity}, (_, i) => `x${i}`).join(', ')})`)
+
+  return f;
+}
+
+const kinds : Kind[] = ["value", "block", "color"]
+const shapes : Shape[] = ["scalar", "arr"]
+
+const data_types : DataType[] = kinds.flatMap(kind => shapes.map(shape => ({kind, shape})))
+
+
+
+function app(a: Fun, b: Fun) : Fun | null{
+  if (a.arity == 0) return null;
+  let arity = a.arity - 1 + b.arity;
+  let T =  (x: DataType[]) => {
+    let [xb, xa] =[ x.slice(0, b.arity), x.slice(b.arity)];
+    let rb = b.T(xb);
+    if (rb == null) return null;
+    let ra = a.T([rb.dtype, ...xa]);
+    if (ra == null) return null
+    return {
+      dtype: ra.dtype,
+      run: (x: Raw[]) => {
+        let [xb, xa] =[ x.slice(0, b.arity), x.slice(b.arity)];
+        xa = [rb.run(xb), ...xa];
+        return ra.run(xa);
+      }
+    }
+  }
+  if (arity == 0){
+    let Tres = T([])
+    if (Tres == null) return null
+    else T = ()=> Tres
+  }
+  return {arity, T}
+}
+
+
+
+
 const sbroadcast = (x: number) : number[]=> {
   return Array.from({length: 16}, ()=>x)
+}
+
+
+const bin_broad_shape = (x: Shape, y: Shape): Shape => {
+  return x == y ? x : "arr";
 }
 
 
@@ -69,7 +144,11 @@ const broadcast = (x: Raw, y: Raw): [Raw, Raw] => {
     (x.length > 1 ? x : sbroadcast(x[0])),
     (y.length > 1 ? y : sbroadcast(y[0]))
   ]
+}
 
+const bin_broad_raw = (x: Raw, y: Raw, fun: (x: number, y: number)=> number): Raw => {
+  let [xa, xb] = broadcast(x, y);
+  return (xa as number[]).map((x, i) => fun(x, xb[i]));
 }
 
 const from_block = (x: number): [Color, number] =>{
@@ -83,6 +162,29 @@ const get_val = (kind: Kind, x: number): number => {
   if (kind == "block") return from_block(x)[1];
   return x;
 }
+
+
+const unpack = <T,R> (x: T | null, f: (x: T) => R): R | null => {
+  if (x == null) return null;
+  return f(x);
+}
+
+const fun = (arity: number, T: (x: DataType[]) => [DataType, Runner] | null) : Fun =>({
+    arity, T: (x: DataType[]) => unpack(T(x), r=>({dtype: r[0],run: r[1]})) })
+
+const mkfun = (X: Kind[], Y: Kind, run: (x: Raw[]) => Raw) : Fun => {
+  return {
+    arity: X.length,
+    T: (x: DataType[]) => {
+      if (! x.every((y, i) => y.kind == X[i])) return null;
+      return {
+        dtype: {kind: Y, shape: x[0].shape},
+        run: (x: Raw[]) => run(x)
+      }
+    }
+  }
+}
+
 
 const to_block = (col: Color, val: number): number => (val - 1) * 3 + col;
 
@@ -157,79 +259,8 @@ const new_field : Fun = {
   })
 }
 
-
 const get_color = (kind: Kind, num: number) => {
   return kind == "block" ? num == 0 ? 0 : (num-1) % 3 + 1 : kind == "color" ? num : 4;
-}
-
-const view_scalar = (kind: Kind, num: number)=>{
-  let color = get_color(kind, num);
-  let content = kind == "value" ? num : kind == "block" ? ( num ? (num - color) / 3 + 1 : "") : "#";
-  return div({
-    style:{
-      width: blockSize,
-      height: blockSize,
-      "color": colors[color],
-      "text-align": "center",
-      "font-size": blockSize,
-      "font-weight": "bold",
-    },
-  }, content)
-}
-
-
-const view = (f: Fun) => {
-  if (f.arity == 0){
-    let T = f.T([]);
-    let dat = T.run([]);
-    if (T.dtype.shape == "scalar") put(view_scalar(T.dtype.kind, dat[0]));
-    else{
-      put(div({style:{
-        display: "flex",
-        "flex-wrap": "wrap",
-        "background-color": "#111",
-        border: "1px solid #888",
-        "width": `calc(${blockSize} * 4)`
-      }}, ...(dat as number[]).map(x => view_scalar(T.dtype.kind, x))));
-    }
-  }
-
-  else log(`FUN(${Array.from({length: f.arity}, (_, i) => `x${i}`).join(', ')})`)
-
-  return f;
-}
-
-const kinds : Kind[] = ["value", "block", "color"]
-const shapes : Shape[] = ["scalar", "arr"]
-
-const data_types : DataType[] = kinds.flatMap(kind => shapes.map(shape => ({kind, shape})))
-
-
-
-function app(a: Fun, b: Fun) : Fun | null{
-  if (a.arity == 0) return null;
-  let arity = a.arity - 1 + b.arity;
-  let T =  (x: DataType[]) => {
-    let [xb, xa] =[ x.slice(0, b.arity), x.slice(b.arity)];
-    let rb = b.T(xb);
-    if (rb == null) return null;
-    let ra = a.T([rb.dtype, ...xa]);
-    if (ra == null) return null
-    return {
-      dtype: ra.dtype,
-      run: (x: Raw[]) => {
-        let [xb, xa] =[ x.slice(0, b.arity), x.slice(b.arity)];
-        xa = [rb.run(xb), ...xa];
-        return ra.run(xa);
-      }
-    }
-  }
-  if (arity == 0){
-    let Tres = T([])
-    if (Tres == null) return null
-    else T = ()=> Tres
-  }
-  return {arity, T}
 }
 
 const index = (f: (x: number, y: number) => [number, number], data: number[]) => {
@@ -257,34 +288,48 @@ const left = move((x, y) => [x + 1, y])
 const up = move((x, y) => [x, y - 1])
 const down = move((x, y) => [x, y + 1])
 
-const mkfun = (X: Kind[], Y: Kind, run: (x: Raw[]) => Raw) : Fun => {
-  return {
-    arity: X.length,
-    T: (x: DataType[]) => {
-      if (! x.every((y, i) => y.kind == X[i])) return null;
-      return {
-        dtype: {kind: Y, shape: x[0].shape},
-        run: (x: Raw[]) => run(x)
-      }
-    }
-  }
-}
-
 const colorof = mkfun(["block"], "color", ([x]: Raw[]) => x.map(y => from_block(y)[0]))
 const blockval = mkfun(["block"], "value", ([x]: Raw[]) => x.map(y => from_block(y)[1]))
 const colorval = mkfun(["color"], "value", ([x]: Raw[]) => x)
 const toblock = mkfun(["value", "color"], "block", ([x, y]: Raw[]) => x.map((z, i) => to_block(y[i] as Color, z)))
 
+const eq : Fun = {
+  arity: 2,
+  T: ([A, B]: DataType[]) => {
+    if (A.kind != B.kind) return null;
+    return {
+      dtype: {kind: "value", shape: bin_broad_shape(A.shape, B.shape)},
+      run: ([x, y]: Raw[]) => bin_broad_raw(x, y, (x, y) => x == y ? 1 : 0)
+    }
+  }
+}
 
-// view(new_field)
-// view(app(right, new_field))
+const not : Fun = {
+  arity: 1,
+  T: ([A]: DataType[]) => ({
+    dtype: {kind: "value", shape: A.shape},
+    run: ([x]: Raw[]) => x.map(y => y == 0 ? 1 : 0)
+  })
+}
 
-// view(app(colorof, new_field))
-// view(app(blockval, new_field))
-// view(app(colorval, new_field))
 
-view(app(inc, new_field));
 
-log(app(colorval, new_field))
+const chain = (...fs: Fun[]) => {
+  if (fs.length == 0) return null;
+  let f = fs[0];
+  let x = fs[1];
+  if (!x) return f;
+  let a = app(f, x);
+  if (a == null) return null;
+  return chain(a, ...fs.slice(2));
+}
 
-log(colorval.T([new_field.T([]).dtype]))
+// view( new_field);
+// log("blockval")
+
+// view(blockval, new_field)
+// view(colorval, colorof, new_field)
+
+// view(colorof, new_field)
+// view(eq, colorval, colorof, new_field, blockval, new_field)
+// view(not, eq, new_field, inc, new_field)
