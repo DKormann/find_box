@@ -44,7 +44,7 @@ type DataType = {
   shape: "scalar" | "arr"
 }
 
-type Raw = number | number[];
+type Raw = [number] | number[];
 
 type Runner = (x: Raw[]) => Raw
 
@@ -64,15 +64,16 @@ const sbroadcast = (x: number) : number[]=> {
 
 
 const broadcast = (x: Raw, y: Raw): [Raw, Raw] => {
-  if (x instanceof Number && y instanceof Number) return [x, y];
+  if (x.length == y.length) return [x, y];
   return [
-    (x instanceof Array ? x : sbroadcast(x)),
-    (y instanceof Array ? y : sbroadcast(y))
+    (x.length > 1 ? x : sbroadcast(x[0])),
+    (y.length > 1 ? y : sbroadcast(y[0]))
   ]
 
 }
 
 const from_block = (x: number): [Color, number] =>{
+  if (x == 0) return [0, 0];
   let col = (x-1) % 3 + 1 as Color;
   return [col, (x-col) / 3 + 1];
 }
@@ -100,13 +101,7 @@ const unary_math = (f: (x: number)=> number): Fun => {
             return to_block(col, f(val));
           }
         }
-        let res: Raw ;
-        if (A.shape == "arr"){
-          res = (a as number[]).map(g)
-        }else{
-          res = g(a as number)
-        }
-        return res;
+        return (a as number[]).map(g);
       }
       return {
         dtype: {
@@ -133,7 +128,6 @@ const binary_math = (f: (x: number, y: number)=> number): Fun => {
       return {
         dtype: {kind, shape },
         run: ([a,b]: Raw[]) => {
-          if (shape == "scalar") return g(a as number, b as number);
           let [xa, xb] = broadcast(a, b);
           return (xa as number[]).map((x, i) => g(x, xb[i]));
         }
@@ -188,7 +182,7 @@ const view = (f: Fun) => {
   if (f.arity == 0){
     let T = f.T([]);
     let dat = T.run([]);
-    if (T.dtype.shape == "scalar") put(view_scalar(T.dtype.kind, dat as number));
+    if (T.dtype.shape == "scalar") put(view_scalar(T.dtype.kind, dat[0]));
     else{
       put(div({style:{
         display: "flex",
@@ -215,33 +209,28 @@ const data_types : DataType[] = kinds.flatMap(kind => shapes.map(shape => ({kind
 function app(a: Fun, b: Fun) : Fun | null{
   if (a.arity == 0) return null;
   let arity = a.arity - 1 + b.arity;
-  return {
-    arity,
-    T: (x: DataType[]) => {
-      let [xb, xa] =[ x.slice(0, b.arity), x.slice(b.arity)];
-      let rb = b.T(xb);
-      if (rb == null) return null;
-      let ra = a.T([rb.dtype, ...xa]);
-      return {
-        dtype: ra.dtype,
-        run: (x: Raw[]) => {
-          let [xb, xa] =[ x.slice(0, b.arity), x.slice(b.arity)];
-          xa = [rb.run(xb), ...xa];
-          return ra.run(xa);
-        }
+  let T =  (x: DataType[]) => {
+    let [xb, xa] =[ x.slice(0, b.arity), x.slice(b.arity)];
+    let rb = b.T(xb);
+    if (rb == null) return null;
+    let ra = a.T([rb.dtype, ...xa]);
+    if (ra == null) return null
+    return {
+      dtype: ra.dtype,
+      run: (x: Raw[]) => {
+        let [xb, xa] =[ x.slice(0, b.arity), x.slice(b.arity)];
+        xa = [rb.run(xb), ...xa];
+        return ra.run(xa);
       }
     }
   }
+  if (arity == 0){
+    let Tres = T([])
+    if (Tres == null) return null
+    else T = ()=> Tres
+  }
+  return {arity, T}
 }
-
-
-
-
-view(new_field);
-view(app(inc, new_field));
-
-
-
 
 const index = (f: (x: number, y: number) => [number, number], data: number[]) => {
   return Array.from({length: 16}, (_, i) => {
@@ -268,6 +257,34 @@ const left = move((x, y) => [x + 1, y])
 const up = move((x, y) => [x, y - 1])
 const down = move((x, y) => [x, y + 1])
 
-view(new_field)
-view(app(right, new_field))
+const mkfun = (X: Kind[], Y: Kind, run: (x: Raw[]) => Raw) : Fun => {
+  return {
+    arity: X.length,
+    T: (x: DataType[]) => {
+      if (! x.every((y, i) => y.kind == X[i])) return null;
+      return {
+        dtype: {kind: Y, shape: x[0].shape},
+        run: (x: Raw[]) => run(x)
+      }
+    }
+  }
+}
 
+const colorof = mkfun(["block"], "color", ([x]: Raw[]) => x.map(y => from_block(y)[0]))
+const blockval = mkfun(["block"], "value", ([x]: Raw[]) => x.map(y => from_block(y)[1]))
+const colorval = mkfun(["color"], "value", ([x]: Raw[]) => x)
+const toblock = mkfun(["value", "color"], "block", ([x, y]: Raw[]) => x.map((z, i) => to_block(y[i] as Color, z)))
+
+
+// view(new_field)
+// view(app(right, new_field))
+
+// view(app(colorof, new_field))
+// view(app(blockval, new_field))
+// view(app(colorval, new_field))
+
+view(app(inc, new_field));
+
+log(app(colorval, new_field))
+
+log(colorval.T([new_field.T([]).dtype]))
