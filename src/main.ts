@@ -241,30 +241,33 @@ view(new_field);
 view(app(inc, new_field));
 
 
-view(add)
-
-let dub = app(add, new_field);
-
-view(dub)
-
-dub = app(dub, new_field);
-
-view(dub)
 
 
+const index = (f: (x: number, y: number) => [number, number], data: number[]) => {
+  return Array.from({length: 16}, (_, i) => {
+    let [x, y] = f(i % 4, Math.floor(i / 4));
+    return x < 0 || x >= 4 || y < 0 || y >= 4 ? 0 : data[x + y * 4]
+  })
+}
 
-const right: Fun = {
-  arity: 1,
-  T: ([A]: DataType[]) => {
-    if (A.shape != "arr") return null;
-
-    return {
-      dtype: A,
-      run: ([x]: Raw[]) => x as number[],
+const move = (f: (x: number, y: number) => [number, number]) => {
+  return {
+    arity: 1,
+    T: ([A]: DataType[]) => {
+      if (A.shape != "arr") return null;
+      return {
+        dtype: A,
+        run: ([x]: Raw[]) => index(f, x as number[])
+      }
     }
   }
 }
 
+const right = move((x, y) => [x - 1, y])
+const left = move((x, y) => [x + 1, y])
+const up = move((x, y) => [x, y - 1])
+const down = move((x, y) => [x, y + 1])
 
+view(new_field)
 view(app(right, new_field))
 
