@@ -27,28 +27,34 @@ function log(...el:(string | Object) []){
   return el
 }
 
-
 const blockSize = "40px";
 const colors = ["red", "green", "#0044FF", "black", "white"]
 type Color = 0 | 1 | 2
-type ScalarType = "block" | "color" | "value" | "boolean"
-type Kind = ScalarType | ["maybe", Kind] | ["matrix", Kind]
+type ScalarType = "block" | "color" | "number" | "boolean"
 
 
-type Raw = number | Raw[]
+type Kind = ScalarType | ["matrix", ScalarType]
+
+
+type Raw = number | (number | null) []
 
 type Runner = (x: Raw[]) => Raw
 
-type Fun = {
-  tag: "elementary",
-  expect: ScalarType[]
-  result: Kind
-  runner: (x: number[]) => number
+type Fun = 
+{
+  tag: "const",
+  result: Kind,
+  runner: () => Raw
+} | {
+  tag: "binary",
+  expect: [ScalarType, ScalarType]
+  result: ScalarType,
+  runner: (x: number, y: number) => number
 } | {
   tag: "reduce",
   expect: ScalarType
   result: ScalarType
-  runner: (x: number, y: number) => number
+  runner: [number, (x: number, y: number) => number]
 } | {
   tag: "move",
   index : (i: number) => number,
@@ -61,25 +67,25 @@ const mapnull = <T,R> (x: T | null, f: (x: T) => R): R | null => {
 
 const cast : Record<ScalarType, Record<ScalarType, (x: number) => number>> = {
   block: {
-    value: x => Math.floor(x / 3),
+    number: x => Math.floor(x / 3),
     color: x => x % 3,
     boolean: x=> Math.floor(x / 3) == 0 ? 0 : 1,
     block: x=>x,
   },
   color: {
-    value: x => x,
+    number: x => x,
     block: x => x,
     boolean: x=> x == 0 ? 0 : 1,
     color: x=>x,
   },
-  value: {
+  number: {
     block: x => x * 3,
     color: x => x % 3,
     boolean: x=>x == 0 ? 0 : 1,
-    value: x=>x,
+    number: x=>x,
   },
   boolean: {
-    value: x=>x,
+    number: x=>x,
     block: x=>x,
     color: x=>x,
     boolean: x=>x,
@@ -87,103 +93,277 @@ const cast : Record<ScalarType, Record<ScalarType, (x: number) => number>> = {
 }
 
 const view_scalar = (kind: ScalarType, num: number)=>{
-  return div({
-    style:{
-      color: colors[kind == "block" ? cast.block.color(num) : kind == "boolean" ? num : 4],
-      background: kind == "color" ? colors[num] : colors[3],
-      width: blockSize, height: blockSize,
-      "text-align": "center", "font-size": blockSize, "font-weight": "bold", },
-  }, kind == "value" ? num : kind == "block" ? cast.block.value(num) : kind == "boolean" ? [num == 0 ? "X" : "v"] : "")
+  return div(
+    {
+      onclick: () =>{
+        console.log(kind, num)
+      },
+
+      style:{
+        ... (num != null ? {
+          color: colors[kind == "block" ? cast.block.color(num) : kind == "boolean" ? num : 4],
+          background: kind == "color" ? colors[num] : colors[3],
+        }: {background: colors[3]}),
+        width: blockSize, height: blockSize,
+        "text-align": "center", "font-size": blockSize, "font-weight": "bold", },
+    }, num == null ? "" : kind == "number" ? num : kind == "block" ? cast.block.number(num) : kind == "boolean" ? [num == 0 ? "X" : "v"] : "")
 }
 
-put(view_scalar("value", 1))
-put(view_scalar("block", 0))
-put(view_scalar("block", 1))
-put(view_scalar("boolean", 1))
-put(view_scalar("boolean", 0))
-put(view_scalar("color", 1))
+// put(view_scalar("number", 1))
+// put(view_scalar("block", 0))
+// put(view_scalar("block", 1))
+// put(view_scalar("boolean", 1))
+// put(view_scalar("boolean", 0))
+// put(view_scalar("color", null))
+// put(view_scalar("color", 1))
 
-
-
-const sizeof = (dtype: Kind) : number => {
-  if (typeof dtype == "string") return 1;
-  let [m, k] = dtype;
-  if (m == "matrix") return sizeof(k) * 16;
-  if (m == "maybe") return sizeof(k) + 1;
-  return 0;
-}
-
-const gridsize = (dtype: Kind) : number => {
-  if (typeof dtype == "string") return 1;
-  let [m, k] = dtype;
-  if (m == "matrix") return gridsize(k) * 16;
-  return gridsize(k);
-}
-
-const view_data = (dtype: Kind, data: Raw) => {
-  let size = sizeof(dtype);
-  if (typeof dtype == "string") {
-    return view_scalar(dtype, data as number)
-  }
-
-  let [m, k] = dtype;
-  if (m == "matrix") {
+const view_matrix = (dtype: ScalarType, data: number[]) => {
     return div({style:{
       display: "flex",
       "flex-wrap": "wrap",
       "background-color": "#111",
       border: "1px solid #888",
-      "width": `calc(${blockSize} * ${Math.sqrt(size)})`
+      "width": `calc(${blockSize} * 4)`
     }}, 
-    (data as Raw[]).map(x => view_data(k, x))
+    (data as (number | null)[]).map(x => view_scalar(dtype, x))
   )
-  }
-  if (m == "maybe") {
-
-    return div({style:{
-      display: "flex",
-      "flex-wrap": "wrap",
-      "background-color": "#111",
-      width: `calc(${blockSize} * ${Math.sqrt(size)})`,
-      height: `calc(${blockSize} * ${Math.sqrt(size)})`
-    }},
-    data ? view_data(k, data[0]) : null
-  )}
 }
-
-
-const Matrix = (x: Kind) : Kind => ["matrix", x]
-const Maybe = (x: Kind) : Kind => ["maybe", x]
-
-
-
-const myfield : Fun = {
-  tag: "elementary",
-  expect: [],
-  result: ["matrix", ["maybe", "value"]],
-  runner: ([]: Raw[]) => range(16).map(i=>[i])
-}
-
-
-
-const kindeq = (X: any, E: any) : boolean=> JSON.stringify(X) == JSON.stringify(E)
-const zeros = (n: number) => Array.from({length: n}, () => 0);
 const range = (n: number) => Array.from({length: n}, (_, i) => i);
+const zeros = (n: number) => Array.from({length: n}, () => 0);
 
 
-const inc : Fun = {
-  tag: "elementary",
-  expect: ["value"],
-  result: "value",
-  runner: (x: Raw) => x as number + 1
+
+
+
+
+const ismat = (k: Kind) => k instanceof Array;
+
+const judge = (...fs: Fun[]): "mat" | "scalar" | "err" | "unk" =>{
+
+  const take = () => fs.shift();
+  
+  let go = (): "mat" | "scalar" | "err" | "unk" => {
+
+    let f = take();
+    if (f === undefined) return "unk";
+
+    if (f.tag == "const") return ismat(f.result) ? "mat" : "scalar";
+
+    let x = go();
+    if (x == "err") return x
+
+    if (f.tag == "reduce"){
+      if (x == "scalar") return "err";
+      return x;
+    }
+
+    if (f.tag == "move"){
+      if (x == "scalar") return "err";
+      if (x == "mat") return "scalar";
+      return x;
+    }
+
+    if (f.tag == "binary"){
+      let y = go();
+      if (y == "err") return y
+      if (y == "mat" || x == "mat") return "mat";
+      if (x == "unk" || y == "unk") return "unk";
+      return "scalar";
+    }
+  }
+
+  return go();
 }
 
-const eq : Fun = {
-  tag: "elementary",
-  expect: ["value", "value"],
-  result: "boolean",
-  runner: ([x, y]: Raw[]) => x == y ? 1 : 0
+
+const into = (k: Kind, e: Kind, x: Raw): Raw => {
+
+
+  if (JSON.stringify(k) == JSON.stringify(e)) return x;
+  if (ismat(k) && ismat(e)) return (x as number[]).map(x=>into(k[1], e[1], x) as number)
+  if (!ismat(k) && !ismat(e)) return cast[k][e] (x as number)
+  if (!ismat(k) && ismat(e)) {
+    let res = cast[k][e[1]] (x as number)
+    return Array.from({length: 16}, () => res)
+  }
+  throw new Error("Invalid type conversion");
 }
 
 
-put(view_data(myfield.result, myfield.runner([])))
+
+type Ast = Fun | Ast[]
+
+const app = (...a: Ast[]): Fun => {
+
+  let fs = a.flat(10) as Fun[];
+
+
+  let take = () => fs.shift();
+
+  let go = (): [Kind, Raw] => {
+
+    let f = take();
+    if (f == undefined) return null;
+    if (f.tag == "const") return [f.result, f.runner()];
+    let x = go();
+    if (x == null) return null;
+
+    if (f.tag == "reduce"){
+      let E : Kind = ["matrix", f.expect];
+      let d = into(x[0], E, x[1])
+      return [f.result, (d as number[]).reduce((acc, x) => f.runner[1](acc, x), f.runner[0])]
+    }
+
+    if (f.tag == "move"){
+      let E = x[0];
+      let d = range(16).map(f.index).map(i=> i == -1 ? null : x[1][i])
+      return [E, d]
+    }
+
+    if (f.tag == "binary"){
+
+      let y = go();
+      if (y == null) return null;
+      
+      if (ismat(x[0]) || ismat(y[0])){
+        let xd : number[] = into(x[0], ["matrix", f.expect[0]], x[1]) as number[]
+
+
+
+        let yd : number[] = into(y[0], ["matrix", f.expect[1]], y[1]) as number[]
+        let res = (xd as number[]).map((x, i) => f.runner(x as number, yd[i] as number))
+        return [["matrix", f.result], res]
+      }
+      
+      let xd = into(x[0], f.expect[0], x[1])
+      let yd = into(y[0], f.expect[1], y[1])
+      return [f.result, f.runner(xd as number, yd as number)]
+
+    }
+  }
+
+  let [E, d] = go();
+  if (E == null) return null;
+
+  return {
+    tag: "const",
+    result: E,
+    runner: () => d
+  }
+}
+
+
+const mf : Fun = {
+  tag: "const",
+  result: ["matrix", "number"],
+  runner: () => Array.from({length: 16}, (_,i) => i)
+}
+
+
+
+let add : Fun = {
+  tag: "binary",
+  expect: ["number", "number"],
+  result: "number",
+  runner: (x, y) => x + y
+}
+
+
+
+const view = (f: Fun) => {
+  if (f.tag == "const"){
+    if (ismat(f.result)){
+      return put(view_matrix(f.result[1], f.runner() as number[]))
+    }
+    return put(view_scalar(f.result, f.runner() as number))
+  }
+}
+
+const matrix  = (T: ScalarType, data: number[]) : Fun => {
+  return {
+    tag: "const",
+    result: ["matrix", T],
+    runner: () => data
+  }
+}
+
+const binary = (T: ScalarType[], f: (x: number, y: number)=> number) : Fun => {
+  if (T.length == 0) T = ["number"];
+  if (T.length == 1) T = [T[0], T[0]];
+  if (T.length == 2) T = [T[0], T[0], T[1]];
+  return {
+    tag: "binary",
+    expect: [T[0], T[1]],
+    result: T[2],
+    runner: (x, y) => f(x as number, y as number)
+  }
+}
+
+const reduce = (T: ScalarType, f: (x: number, y: number)=> number) : Fun => {
+  return {
+    tag: "reduce",
+    expect: T,
+    result: T,
+    runner: [0, (x, y) => f(x as number, y as number)]
+  }
+}
+
+const scalar = (T: ScalarType, x: number) : Fun => {
+  return {
+    tag: "const",
+    result: T,
+    runner: () => x
+  }
+}
+
+
+const unary = (T: ScalarType[], f: (x: number)=> number) : Ast[] => {
+  if (T.length == 0) T = ["number"];
+  if (T.length == 1) T = [T[0], T[0]];
+  return [{
+    tag: "binary",
+    expect: ["number", T[0]],
+    result: T[1],
+    runner: (_, x) => f(x as number)
+  }, scalar("number", 0)]
+}
+
+const inc = unary(["number"], (x) => x + 1)
+
+const add2 = binary(["number", "number"], (x, y) => x + y)
+
+const sum = reduce("number", (x, y) => x + y)
+
+const myfield = matrix("block", range(16))
+
+
+const get_color = unary(["color", "color"], (x) => x)
+
+
+view(myfield)
+view(app(get_color, myfield))
+
+const move = (index: (i: number) => number) : Fun => ({tag: "move", index})
+
+const move_dir = (dx: number, dy: number) => {
+  return move((i) => {
+    let x = i % 4 + dx;
+    let y = Math.floor(i / 4) + dy;
+    if (x < 0 || x > 3 || y < 0 || y > 3) return -1;
+    return x + y * 4;
+  })
+}
+
+const right = move_dir(1, 0)
+const left = move_dir(-1, 0)
+const up = move_dir(0, -1)
+const down = move_dir(0, 1)
+
+view(app(right, myfield))
+
+
+
+
+
+
+
