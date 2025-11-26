@@ -34,16 +34,24 @@ type Color = 0 | 1 | 2
 type ScalarType = "block" | "color" | "value" | "boolean"
 type Kind = ScalarType | ["maybe", Kind] | ["matrix", Kind]
 
-type Pattern = ScalarType | "any" | ["maybe", Pattern] | ["matrix", Pattern]
 
-type Raw = number[]
+type Raw = number | Raw[]
 
 type Runner = (x: Raw[]) => Raw
 
 type Fun = {
-  expect: Kind[]
+  tag: "elementary",
+  expect: ScalarType[]
   result: Kind
-  runner: Runner
+  runner: (x: number[]) => number
+} | {
+  tag: "reduce",
+  expect: ScalarType
+  result: ScalarType
+  runner: (x: number, y: number) => number
+} | {
+  tag: "move",
+  index : (i: number) => number,
 }
 
 const mapnull = <T,R> (x: T | null, f: (x: T) => R): R | null => {
@@ -114,10 +122,8 @@ const gridsize = (dtype: Kind) : number => {
 
 const view_data = (dtype: Kind, data: Raw) => {
   let size = sizeof(dtype);
-
-
   if (typeof dtype == "string") {
-    return view_scalar(dtype, data[0] as number)
+    return view_scalar(dtype, data as number)
   }
 
   let [m, k] = dtype;
@@ -129,7 +135,7 @@ const view_data = (dtype: Kind, data: Raw) => {
       border: "1px solid #888",
       "width": `calc(${blockSize} * ${Math.sqrt(size)})`
     }}, 
-    ...Array.from({length: 16}, (_, i) => view_data(k, data.slice(i * size/16, (i+1) * size/16 + 1)))
+    (data as Raw[]).map(x => view_data(k, x))
   )
   }
   if (m == "maybe") {
@@ -141,7 +147,7 @@ const view_data = (dtype: Kind, data: Raw) => {
       width: `calc(${blockSize} * ${Math.sqrt(size)})`,
       height: `calc(${blockSize} * ${Math.sqrt(size)})`
     }},
-    data[0] ? view_data(k, data.map(x => x-1)) : null
+    data ? view_data(k, data[0]) : null
   )}
 }
 
@@ -151,68 +157,33 @@ const Maybe = (x: Kind) : Kind => ["maybe", x]
 
 
 
+const myfield : Fun = {
+  tag: "elementary",
+  expect: [],
+  result: ["matrix", ["maybe", "value"]],
+  runner: ([]: Raw[]) => range(16).map(i=>[i])
+}
+
+
+
+const kindeq = (X: any, E: any) : boolean=> JSON.stringify(X) == JSON.stringify(E)
+const zeros = (n: number) => Array.from({length: n}, () => 0);
+const range = (n: number) => Array.from({length: n}, (_, i) => i);
+
+
 const inc : Fun = {
+  tag: "elementary",
   expect: ["value"],
   result: "value",
-  runner: ([[x]]: Raw[]) => [x + 1]
+  runner: (x: Raw) => x as number + 1
 }
 
 const eq : Fun = {
+  tag: "elementary",
   expect: ["value", "value"],
   result: "boolean",
-  runner: ([[x], [y]]: Raw[]) => [x == y ? 1 : 0]
-}
-
-const kindeq = (X: any, E: any) : boolean=> JSON.stringify(X) == JSON.stringify(E)
-
-const zeros = (n: number) => Array.from({length: n}, () => 0);
-
-const range = (n: number) => Array.from({length: n}, (_, i) => i);
-
-const map = (X: Kind[], E: Kind[], f: (x: Raw[]) => Raw[]) : [Kind, Runner] | null=>{
-  if (kindeq(X, E)) return null;
-  if (X.some(x => x instanceof String)) return null;
-  let [m, k] = X[0];
-  if (X.some(x => x[0] != m)) return null
-
-  let ks = X.map(x => x[1]) as Kind[];
-  let g = map(ks, E, f);
-  if (g == null) return null;
-  let [rk, rf] = g;
-
-  if (m == "maybe") {
-
-    let h  = (x: Raw[]) => {
-      if (x.some(x => x[0] == 0)) return [0, ...zeros(sizeof(rk))]
-      return [1, ...rf(x.map(x=>x.slice(1)))]
-    }
-    return [["maybe", rk], h]
-  }
-
-  if (m == "matrix") {
-    let sizes = ks.map(sizeof);
-    let h = (x: Raw[]) => {
-      return range(16).map(i => {
-        let a = range(x.length).map(j => x[j].slice(sizes[j] * i, sizes[j] * (i+1)))
-        return rf(a)
-      })
-    }   
-  }
-
-  return null;
+  runner: ([x, y]: Raw[]) => x == y ? 1 : 0
 }
 
 
-
-
-function app(f: Fun, x: Fun) : Fun | null{
-
-
-
-  
-
-  
-
-}
-
-
+put(view_data(myfield.result, myfield.runner([])))
