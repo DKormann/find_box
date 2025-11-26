@@ -109,7 +109,7 @@ const view_scalar = (kind: ScalarType, num: number)=>{
         }: {background: colors[3]}),
         width: blockSize, height: blockSize,
         "text-align": "center", "font-size": blockSize, "font-weight": "bold", },
-    }, num == null ? "" : kind == "number" ? num : kind == "block" ? cast.block.number(num) : kind == "boolean" ? [num == 0 ? "X" : "v"] : "")
+    }, num == null ? "" : kind == "number" ? num : kind == "block" ? cast.block.number(num) : kind == "boolean" ? [num == 0 ? "✗" : "✓"] : "")
 }
 
 const view_matrix = (dtype: ScalarType, data: number[]) => {
