@@ -40,11 +40,14 @@ type Raw = number | (number | null) []
 
 type Runner = (x: Raw[]) => Raw
 
-type Fun = 
+type Fun =
 {
+  tag: "source"
+  kind: Kind,
+} | {
   tag: "const",
-  result: Kind,
-  runner: () => Raw
+  kind: Kind,
+  content: Raw
 } | {
   tag: "binary",
   expect: [ScalarType, ScalarType]
@@ -139,7 +142,7 @@ const judge = (...fs: Fun[]): "mat" | "scalar" | "err" | "unk" =>{
     let f = take();
     if (f === undefined) return "unk";
 
-    if (f.tag == "const") return ismat(f.result) ? "mat" : "scalar";
+    if (f.tag == "const") return ismat(f.kind) ? "mat" : "scalar";
 
     let x = go();
     if (x == "err") return x
@@ -170,8 +173,6 @@ const judge = (...fs: Fun[]): "mat" | "scalar" | "err" | "unk" =>{
 
 const into = (k: Kind, e: Kind, x: Raw): Raw => {
 
-  console.log(k,e,x)
-
 
   if (JSON.stringify(k) == JSON.stringify(e)) return x;
   if (ismat(k) && ismat(e)) return (x as number[]).map(x=>into(k[1], e[1], x) as number)
@@ -190,15 +191,13 @@ type Ast = Fun | Ast[]
 const app = (...a: Ast[]): Fun => {
 
   let fs = a.flat(10) as Fun[];
-
-
   let take = () => fs.shift();
 
   let go = (): [Kind, Raw] => {
 
     let f = take();
     if (f == undefined) return null;
-    if (f.tag == "const") return [f.result, f.runner()];
+    if (f.tag == "const") return [f.kind, f.content];
     let x = go();
     if (x == null) return null;
 
@@ -220,14 +219,13 @@ const app = (...a: Ast[]): Fun => {
       if (ismat(x[0]) || ismat(y[0])){
         let xd : number[] = into(x[0], ["matrix", f.expect[0]], x[1]) as number[]
         let yd : number[] = into(y[0], ["matrix", f.expect[1]], y[1]) as number[]
-        console.log("mat mat")
+
         let res = (xd as number[]).map((x, i) => f.runner(x as number, yd[i] as number))
         return [["matrix", f.result], res]
       }
       let xd = into(x[0], f.expect[0], x[1])
       let yd = into(y[0], f.expect[1], y[1])
       return [f.result, f.runner(xd as number, yd as number)]
-
     }
   }
 
@@ -236,17 +234,89 @@ const app = (...a: Ast[]): Fun => {
 
   return {
     tag: "const",
-    result: E,
-    runner: () => d
+    kind: E,
+    content: d
   }
 }
 
 
-const mf : Fun = {
-  tag: "const",
-  result: ["matrix", "number"],
-  runner: () => Array.from({length: 16}, (_,i) => i)
+
+const i16 = range(16);
+
+
+const mkinto = (k: Kind, e: Kind): ((x:Raw) => Raw) => {
+  if (JSON.stringify(k) == JSON.stringify(e)) return x=>x;
+  if (ismat(k) && ismat(e)) return x=>(x as number[]).map(x=>into(k[1], e[1], x) as number)
+  if (!ismat(k) && !ismat(e)) return x=> x == null ? null : cast[k][e] (x as number)
+  if (!ismat(k) && ismat(e)) {
+    return x=>{
+      let res = x == null ? null : cast[k][e[1]] (x as number)
+      return Array.from({length: 16}, () => res)
+    }
+
+  }
+  throw new Error("Invalid type conversion");
 }
+
+const compile = ( ...a: Ast[]): (x:Fun & {content: Raw})=>Fun => {
+
+  let fs = a.flat(10) as Fun[];
+  let take = () => fs.shift();
+
+  let go = (): [Kind, (x:Raw) => Raw] => {
+
+    let f = take();
+
+
+    if (f.tag == "source") return [f.kind, x=>x]
+    if (f == undefined) return null;
+    if (f.tag == "const") return [f.kind, ()=>f.content];
+    let x = go();
+    if (x == null) return null;
+
+    let [X, run] = x
+
+
+    if (f.tag == "reduce"){
+      let E : Kind = ["matrix", f.expect];
+      let [df, fn] = f.runner;
+      let caster = mkinto(X,E)
+      return [f.result, (d )=>(caster(run(d)) as number[]).reduce(fn, df)]
+    }
+
+    if (f.tag == "move"){
+      if (!ismat(x[0])) return null
+      let is = i16.map(f.index)
+      return [X, x=>is.map(i=>i == -1 ? null : x[i])]
+    }
+
+    if (f.tag == "binary"){
+      let y = go();
+      if (y == null) return null;
+
+      let [Y, runy] = y;
+      if (ismat(X) || ismat(Y)){
+
+        let mkerx = mkinto(X, ["matrix", f.expect[0]])
+        let mkery = mkinto(Y, ["matrix", f.expect[1]])
+
+        return [["matrix", f.result], x=>{
+          let xx = mkerx(run(x));
+          let yy = mkery(runy(x));
+          return Array.from({length:16}, (_,i) => f.runner(xx[i], yy[i]))
+        }]
+      }
+      let mkerx = mkinto(X, f.expect[0])
+      let mkery = mkinto(Y, f.expect[0])
+      return [f.result, x=>f.runner(mkerx(run(x)) as number, mkery(runy(x)) as number)]
+    }
+  }
+
+  let E = go();
+  if (E == null) return null;
+  return x=>({tag:"const", kind: E[0], content: E[1](x.content)})
+}
+
 
 
 
@@ -259,21 +329,24 @@ let add : Fun = {
 
 
 
+
+
+
 const view = (...ast: Ast[]) => {
   let f = app(...ast);
   if (f.tag == "const"){
-    if (ismat(f.result)){
-      return put(view_matrix(f.result[1], f.runner() as number[]))
+    if (ismat(f.kind)){
+      return put(view_matrix(f.kind[1], f.content as number[]))
     }
-    return put(view_scalar(f.result, f.runner() as number))
+    return put(view_scalar(f.kind, f.content as number))
   }
 }
 
-const matrix  = (T: ScalarType, data: number[]) : Fun => {
+const matrix  = (T: ScalarType, data: number[]) : Fun & {content: Raw} => {
   return {
     tag: "const",
-    result: ["matrix", T],
-    runner: () => data
+    kind: ["matrix", T],
+    content: data
   }
 }
 
@@ -301,8 +374,8 @@ const reduce = (T: ScalarType, def:number, f: (x: number, y: number)=> number) :
 const scalar = (T: ScalarType, x: number) : Fun => {
   return {
     tag: "const",
-    result: T,
-    runner: () => x
+    kind: T,
+    content: x
   }
 }
 
@@ -384,16 +457,30 @@ let fields = [
     1,2,n,n,
     n,n,n,n,
   ],
-]
+].map(f => matrix("block", f) )
 
+let X : Fun = {tag: "source", kind: ["matrix", "block"]}
 
+let RX = compile(any, and, green, X, red, right, X)
 
-fields.map(f => {
-  let mat = (matrix("block", f));
-  view(mat)
-  let rule = [or, red, mat, left, red, mat]
-  rule = [any, and, red, right, mat, green, mat]
-  view(rule)
-
+fields.map(f=>{
+  let res = (RX(f))
+  view(res)
 })
+
+
+let st = performance.now()
+
+const IT = 80000;
+
+for (let i = 0; i < IT; i++) {
+  let res = (RX(fields[i % fields.length]))
+}
+
+let et = performance.now()
+let dt = et - st
+
+console.log(IT / dt * 1000, "ops/s")
+
+
 
