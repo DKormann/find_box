@@ -109,14 +109,6 @@ const view_scalar = (kind: ScalarType, num: number)=>{
     }, num == null ? "" : kind == "number" ? num : kind == "block" ? cast.block.number(num) : kind == "boolean" ? [num == 0 ? "X" : "v"] : "")
 }
 
-// put(view_scalar("number", 1))
-// put(view_scalar("block", 0))
-// put(view_scalar("block", 1))
-// put(view_scalar("boolean", 1))
-// put(view_scalar("boolean", 0))
-// put(view_scalar("color", null))
-// put(view_scalar("color", 1))
-
 const view_matrix = (dtype: ScalarType, data: number[]) => {
     return div({style:{
       display: "flex",
@@ -178,12 +170,14 @@ const judge = (...fs: Fun[]): "mat" | "scalar" | "err" | "unk" =>{
 
 const into = (k: Kind, e: Kind, x: Raw): Raw => {
 
+  console.log(k,e,x)
+
 
   if (JSON.stringify(k) == JSON.stringify(e)) return x;
   if (ismat(k) && ismat(e)) return (x as number[]).map(x=>into(k[1], e[1], x) as number)
-  if (!ismat(k) && !ismat(e)) return cast[k][e] (x as number)
+  if (!ismat(k) && !ismat(e)) return x == null ? null : cast[k][e] (x as number)
   if (!ismat(k) && ismat(e)) {
-    let res = cast[k][e[1]] (x as number)
+    let res = x == null ? null : cast[k][e[1]] (x as number)
     return Array.from({length: 16}, () => res)
   }
   throw new Error("Invalid type conversion");
@@ -221,20 +215,15 @@ const app = (...a: Ast[]): Fun => {
     }
 
     if (f.tag == "binary"){
-
       let y = go();
       if (y == null) return null;
-      
       if (ismat(x[0]) || ismat(y[0])){
         let xd : number[] = into(x[0], ["matrix", f.expect[0]], x[1]) as number[]
-
-
-
         let yd : number[] = into(y[0], ["matrix", f.expect[1]], y[1]) as number[]
+        console.log("mat mat")
         let res = (xd as number[]).map((x, i) => f.runner(x as number, yd[i] as number))
         return [["matrix", f.result], res]
       }
-      
       let xd = into(x[0], f.expect[0], x[1])
       let yd = into(y[0], f.expect[1], y[1])
       return [f.result, f.runner(xd as number, yd as number)]
@@ -270,7 +259,8 @@ let add : Fun = {
 
 
 
-const view = (f: Fun) => {
+const view = (...ast: Ast[]) => {
+  let f = app(...ast);
   if (f.tag == "const"){
     if (ismat(f.result)){
       return put(view_matrix(f.result[1], f.runner() as number[]))
@@ -299,12 +289,12 @@ const binary = (T: ScalarType[], f: (x: number, y: number)=> number) : Fun => {
   }
 }
 
-const reduce = (T: ScalarType, f: (x: number, y: number)=> number) : Fun => {
+const reduce = (T: ScalarType, def:number, f: (x: number, y: number)=> number) : Fun => {
   return {
     tag: "reduce",
     expect: T,
     result: T,
-    runner: [0, (x, y) => f(x as number, y as number)]
+    runner: [def, (x, y) => f(x as number, y as number)]
   }
 }
 
@@ -332,16 +322,14 @@ const inc = unary(["number"], (x) => x + 1)
 
 const add2 = binary(["number", "number"], (x, y) => x + y)
 
-const sum = reduce("number", (x, y) => x + y)
 
 const myfield = matrix("block", range(16))
 
 
 const get_color = unary(["color", "color"], (x) => x)
+const get_value = unary(["number", "number"], (x) => x)
 
 
-view(myfield)
-view(app(get_color, myfield))
 
 const move = (index: (i: number) => number) : Fun => ({tag: "move", index})
 
@@ -358,12 +346,54 @@ const right = move_dir(1, 0)
 const left = move_dir(-1, 0)
 const up = move_dir(0, -1)
 const down = move_dir(0, 1)
+const eq = binary(["block", "boolean"], (x, y) => x == null ? null : y == null ? null : x == y ? 1 : 0)
 
-view(app(right, myfield))
+const or = binary(["boolean"], (x,y) => x || y)
+const and = binary(["boolean"], (x,y) => x && y)
+
+const red = [eq, scalar("color", 0), get_color]
+const green = [eq, scalar("color", 1), get_color]
+const blue = [eq, scalar("color", 2), get_color]
+
+const all = reduce("boolean", 1, (x: number, y: number) => x && y)
+const any = reduce("boolean", 0, (x: number, y: number) => x || y)
+const sum = reduce("number", 0, (x,y) => x + y)
+const prod = reduce("number", 1, (x,y) => x * y)
 
 
 
 
+const n = null;
+
+let fields = [
+  [
+    n,n,n,n,
+    n,n,0,n,
+    n,0,n,n,
+    n,n,n,n,
+  ],
+  [
+    n,n,n,n,
+    n,4,0,n,
+    n,n,n,n,
+    n,n,6,n,
+  ],
+  [
+    n,n,n,n,
+    n,14,n,n,
+    1,2,n,n,
+    n,n,n,n,
+  ],
+]
 
 
+
+fields.map(f => {
+  let mat = (matrix("block", f));
+  view(mat)
+  let rule = [or, red, mat, left, red, mat]
+  rule = [any, and, red, right, mat, green, mat]
+  view(rule)
+
+})
 
