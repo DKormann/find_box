@@ -27,17 +27,10 @@ function log(...el:(string | Object) []){
 
 const blockSize = "40px";
 const colors = ["var(--background-color)", "red", "green", "#0044FF", "var(--color)"]
-
 type ScalarType = "block" | "color" | "number" | "boolean"
-
-
 type Kind = ScalarType | ["matrix", ScalarType]
 
-
-
-
-type Raw = number | Int32Array []
-
+type Raw = number | Int32Array
 type Runner = (x: Raw[]) => Raw
 
 type Fun =
@@ -109,7 +102,7 @@ const view_scalar = (kind: ScalarType, num: number)=>{
     }, kind == "number" ? num : kind == "block" ? (num == 0 ? "" : cast.block.number(num)) : kind == "boolean" ? [num == 0 ? "" : "✓"] : "")
 }
 
-const view_matrix = (dtype: ScalarType, data: number[]) => {
+const view_matrix = (dtype: ScalarType, data: Int32Array) => {
     return div({style:{
       display: "flex",
       "flex-wrap": "wrap",
@@ -117,7 +110,7 @@ const view_matrix = (dtype: ScalarType, data: number[]) => {
       border: "1px solid #888",
       "width": `calc(${blockSize} * 4)`
     }}, 
-    (data as (number | null)[]).map(x => view_scalar(dtype, x))
+    Array.from(data).map(x => view_scalar(dtype, x))
   )
 }
 
@@ -127,11 +120,11 @@ const into = (k: Kind, e: Kind, x: Raw): Raw => {
 
 
   if (JSON.stringify(k) == JSON.stringify(e)) return x;
-  if (ismat(k) && ismat(e)) return (x as number[]).map(x=>into(k[1], e[1], x) as number)
+  if (ismat(k) && ismat(e)) return (x as Int32Array).map(x=>into(k[1], e[1], x) as number)
   if (!ismat(k) && !ismat(e)) return x == null ? null : cast[k][e] (x as number)
   if (!ismat(k) && ismat(e)) {
     let res = x == null ? null : cast[k][e[1]] (x as number)
-    return Array.from({length: 16}, () => res)
+    return Int32Array.from({length: 16}, () => res)
   }
   throw new Error("Invalid type conversion");
 }
@@ -147,12 +140,12 @@ const i16 = Int32Array.from({length: 16}, (_, i) => i);
 
 const mkinto = (k: Kind, e: Kind): ((x:Raw) => Raw) => {
   if (JSON.stringify(k) == JSON.stringify(e)) return x=>x;
-  if (ismat(k) && ismat(e)) return x=>(x as number[]).map(x=>into(k[1], e[1], x) as number)
-  if (!ismat(k) && !ismat(e)) return x=> x == null ? null : cast[k][e] (x as number)
+  if (ismat(k) && ismat(e)) return x=>(x as Int32Array).map(x=>into(k[1], e[1], x) as number)
+  if (!ismat(k) && !ismat(e)) return x=> cast[k][e] (x as number)
   if (!ismat(k) && ismat(e)) {
     return x=>{
-      let res = x == null ? null : cast[k][e[1]] (x as number)
-      return Array.from({length: 16}, () => res)
+      let res = cast[k][e[1]] (x as number)
+      return Int32Array.from({length: 16}, () => res)
     }
 
   }
@@ -168,7 +161,6 @@ const compile = ( ...a: Ast[]): (x:Fun & {content: Raw})=>Fun => {
 
     let f = take();
 
-
     if (f.tag == "source") return [f.kind, x=>x]
     if (f == undefined) return null;
     if (f.tag == "const") return [f.kind, ()=>f.content];
@@ -182,7 +174,7 @@ const compile = ( ...a: Ast[]): (x:Fun & {content: Raw})=>Fun => {
       let E : Kind = ["matrix", f.expect];
       let [df, fn] = f.runner;
       let caster = mkinto(X,E)
-      return [f.result, (d )=>(caster(run(d)) as number[]).reduce(fn, df)]
+      return [f.result, (d )=>(caster(run(d)) as Int32Array).reduce(fn, df)]
     }
 
     if (f.tag == "move"){
@@ -204,7 +196,7 @@ const compile = ( ...a: Ast[]): (x:Fun & {content: Raw})=>Fun => {
         return [["matrix", f.result], x=>{
           let xx = mkerx(run(x));
           let yy = mkery(runy(x));
-          return Array.from({length:16}, (_,i) => f.runner(xx[i], yy[i]))
+          return Int32Array.from({length:16}, (_,i) => f.runner(xx[i], yy[i]))
         }]
       }
       let mkerx = mkinto(X, f.expect[0])
@@ -235,7 +227,7 @@ const view = (f:Fun) => {
 
   if (f.tag == "const"){
     if (ismat(f.kind)){
-      return put(view_matrix(f.kind[1], f.content as number[]))
+      return put(view_matrix(f.kind[1], f.content as Int32Array))
     }
     return put(
       div(
@@ -249,7 +241,7 @@ const matrix  = (T: ScalarType, data: number[]) : Fun & {content: Raw} => {
   return {
     tag: "const",
     kind: ["matrix", T],
-    content: data
+    content: Int32Array.from(data)
   }
 }
 
@@ -296,7 +288,6 @@ const unary = (T: ScalarType[], f: (x: number)=> number) : Ast[] => {
 
 const inc = unary(["number"], (x) => x + 1)
 const add2 = binary(["number", "number"], (x, y) => x + y)
-const myfield = matrix("block", i16)
 const get_color = unary(["color", "color"], (x) => x)
 const get_value = unary(["number", "number"], (x) => x)
 
@@ -330,7 +321,7 @@ const all = reduce("boolean", 1, (x: number, y: number) => x && y)
 const any = reduce("boolean", 0, (x: number, y: number) => x || y)
 const sum = reduce("number", 0, (x,y) => x + y)
 const prod = reduce("number", 1, (x,y) => x * y)
-
+const not = unary(["boolean"], x => x == 0 ? 1 : 0)
 
 
 
@@ -360,7 +351,7 @@ let fields = [
 
 let X : Fun = {tag: "source", kind: ["matrix", "block"]}
 
-const rule = (f:Fun) => [any, or, blue, f, green, f]
+const rule = (f:Fun) => [not, any, or, blue, f, green, f]
 
 let RX = compile(rule(X))
 
