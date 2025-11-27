@@ -34,7 +34,9 @@ type ScalarType = "block" | "color" | "number" | "boolean"
 type Kind = ScalarType | ["matrix", ScalarType]
 
 
-type Raw = number | (number | null) []
+
+
+type Raw = number | Int32Array []
 
 type Runner = (x: Raw[]) => Raw
 
@@ -61,10 +63,6 @@ type Fun =
   index : (i: number) => number,
 }
 
-const mapnull = <T,R> (x: T | null, f: (x: T) => R): R | null => {
-  if (x == null) return null;
-  return f(x);
-}
 
 const cast : Record<ScalarType, Record<ScalarType, (x: number) => number>> = {
   block: {
@@ -122,8 +120,7 @@ const view_matrix = (dtype: ScalarType, data: number[]) => {
     (data as (number | null)[]).map(x => view_scalar(dtype, x))
   )
 }
-const range = (n: number) => Array.from({length: n}, (_, i) => i);
-const zeros = (n: number) => Array.from({length: n}, () => 0);
+
 
 const ismat = (k: Kind) => k instanceof Array;
 const into = (k: Kind, e: Kind, x: Raw): Raw => {
@@ -140,63 +137,12 @@ const into = (k: Kind, e: Kind, x: Raw): Raw => {
 }
 
 
-
 type Ast = Fun | Ast[]
 
-const app = (...a: Ast[]): Fun => {
 
-  let fs = a.flat(10) as Fun[];
-  let take = () => fs.shift();
-
-  let go = (): [Kind, Raw] => {
-
-    let f = take();
-    if (f == undefined) return null;
-    if (f.tag == "const") return [f.kind, f.content];
-    let x = go();
-    if (x == null) return null;
-
-    if (f.tag == "reduce"){
-      let E : Kind = ["matrix", f.expect];
-      let d = into(x[0], E, x[1])
-      return [f.result, (d as number[]).reduce((acc, x) => f.runner[1](acc, x), f.runner[0])]
-    }
-
-    if (f.tag == "move"){
-      let E = x[0];
-      let d = range(16).map(f.index).map(i=> i == -1 ? null : x[1][i])
-      return [E, d]
-    }
-
-    if (f.tag == "binary"){
-      let y = go();
-      if (y == null) return null;
-      if (ismat(x[0]) || ismat(y[0])){
-        let xd : number[] = into(x[0], ["matrix", f.expect[0]], x[1]) as number[]
-        let yd : number[] = into(y[0], ["matrix", f.expect[1]], y[1]) as number[]
-
-        let res = (xd as number[]).map((x, i) => f.runner(x as number, yd[i] as number))
-        return [["matrix", f.result], res]
-      }
-      let xd = into(x[0], f.expect[0], x[1])
-      let yd = into(y[0], f.expect[1], y[1])
-      return [f.result, f.runner(xd as number, yd as number)]
-    }
-  }
-
-  let [E, d] = go();
-  if (E == null) return null;
-
-  return {
-    tag: "const",
-    kind: E,
-    content: d
-  }
-}
+const i16 = Int32Array.from({length: 16}, (_, i) => i);
 
 
-
-const i16 = range(16);
 
 
 const mkinto = (k: Kind, e: Kind): ((x:Raw) => Raw) => {
@@ -242,7 +188,7 @@ const compile = ( ...a: Ast[]): (x:Fun & {content: Raw})=>Fun => {
     if (f.tag == "move"){
       if (!ismat(x[0])) return null
       let is = i16.map(f.index)
-      return [X, x=>is.map(i=>i == -1 ? null : x[i])]
+      return [X, x=>is.map(i=>i == -1 ? 0 : x[i])]
     }
 
     if (f.tag == "binary"){
@@ -285,8 +231,8 @@ let add : Fun = {
 
 
 
-const view = (...ast: Ast[]) => {
-  let f = app(...ast);
+const view = (f:Fun) => {
+
   if (f.tag == "const"){
     if (ismat(f.kind)){
       return put(view_matrix(f.kind[1], f.content as number[]))
@@ -350,7 +296,7 @@ const unary = (T: ScalarType[], f: (x: number)=> number) : Ast[] => {
 
 const inc = unary(["number"], (x) => x + 1)
 const add2 = binary(["number", "number"], (x, y) => x + y)
-const myfield = matrix("block", range(16))
+const myfield = matrix("block", i16)
 const get_color = unary(["color", "color"], (x) => x)
 const get_value = unary(["number", "number"], (x) => x)
 
@@ -371,7 +317,7 @@ const right = move_dir(1, 0)
 const left = move_dir(-1, 0)
 const up = move_dir(0, -1)
 const down = move_dir(0, 1)
-const eq = binary(["block", "boolean"], (x, y) => x == null ? null : y == null ? null : x == y ? 1 : 0)
+const eq = binary(["block", "boolean"], (x, y) => x == y ? 1 : 0)
 
 const or = binary(["boolean"], (x,y) => x || y)
 const and = binary(["boolean"], (x,y) => x && y)
@@ -412,37 +358,31 @@ let fields = [
 ].map(f => matrix("block", f) )
 
 
-view(get_color, fields[1])
-view(get_value, fields[1])
-view(and, fields[1], fields[1])
-view(get_value, get_color, fields[1])
-
 let X : Fun = {tag: "source", kind: ["matrix", "block"]}
 
+const rule = (f:Fun) => [any, or, blue, f, green, f]
 
-let RX = compile(any, or, blue, X, red, X)
+let RX = compile(rule(X))
 
 
-fields.map(f=>view(f))
 
 fields.map(f=>{
-  let res = (RX(f))
-  view(res)
+  view(f)
+  view(RX(f))
 })
+const IT = 200000;
 
+function bench(c:(f:Fun) =>Fun){
 
-let st = performance.now()
+  let st = performance.now()
 
-const IT = 80000;
+  for (let i = 0; i < IT; i++) {
+    (c(fields[i % fields.length]))
+  }
 
-for (let i = 0; i < IT; i++) {
-  let res = (RX(fields[i % fields.length]))
+  let et = performance.now()
+  return et - st
 }
 
-let et = performance.now()
-let dt = et - st
-
-console.log(IT / dt * 1000, "ops/s")
-
-
+console.log("RX_compile:", IT / bench(RX) * 1000, "ops/s")
 
