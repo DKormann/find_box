@@ -10,9 +10,7 @@ const doc = div(
     }
   }
 )
-
 document.body.appendChild(doc)
-
 
 function put(...el:HTMLElement[]){
   el.forEach(e => doc.append(e))
@@ -28,8 +26,8 @@ function log(...el:(string | Object) []){
 }
 
 const blockSize = "40px";
-const colors = ["red", "green", "#0044FF", "black", "white"]
-type Color = 0 | 1 | 2
+const colors = ["var(--background-color)", "red", "green", "#0044FF", "var(--color)"]
+
 type ScalarType = "block" | "color" | "number" | "boolean"
 
 
@@ -70,9 +68,9 @@ const mapnull = <T,R> (x: T | null, f: (x: T) => R): R | null => {
 
 const cast : Record<ScalarType, Record<ScalarType, (x: number) => number>> = {
   block: {
-    number: x => Math.floor(x / 3),
-    color: x => x % 3,
-    boolean: x=> Math.floor(x / 3) == 0 ? 0 : 1,
+    number: x => x == 0 ? 0 : Math.floor((x+2) / 3),
+    color: x => x == 0 ? 0 : ((x-1) % 3) + 1,
+    boolean: x=> x == 0 ? 0 : 1,
     block: x=>x,
   },
   color: {
@@ -83,7 +81,7 @@ const cast : Record<ScalarType, Record<ScalarType, (x: number) => number>> = {
   },
   number: {
     block: x => x * 3,
-    color: x => x % 3,
+    color: x => x == 0 ? 0 : (x-1) % 3 + 1,
     boolean: x=>x == 0 ? 0 : 1,
     number: x=>x,
   },
@@ -96,6 +94,7 @@ const cast : Record<ScalarType, Record<ScalarType, (x: number) => number>> = {
 }
 
 const view_scalar = (kind: ScalarType, num: number)=>{
+  if (num == null) throw new Error("Null scalar");
   return div(
     {
       onclick: () =>{
@@ -104,12 +103,12 @@ const view_scalar = (kind: ScalarType, num: number)=>{
 
       style:{
         ... (num != null ? {
-          color: colors[kind == "block" ? cast.block.color(num) : kind == "boolean" ? num : 4],
-          background: kind == "color" ? colors[num] : colors[3],
-        }: {background: colors[3]}),
+          color: colors[kind == "block" ? cast.block.color(num) : kind == "boolean" ? 2 : 4],
+          background: kind == "color" ? colors[num] : colors[0],
+        }: {background: colors[0]}),
         width: blockSize, height: blockSize,
         "text-align": "center", "font-size": blockSize, "font-weight": "bold", },
-    }, num == null ? "" : kind == "number" ? num : kind == "block" ? cast.block.number(num) : kind == "boolean" ? [num == 0 ? "✗" : "✓"] : "")
+    }, kind == "number" ? num : kind == "block" ? (num == 0 ? "" : cast.block.number(num)) : kind == "boolean" ? [num == 0 ? "" : "✓"] : "")
 }
 
 const view_matrix = (dtype: ScalarType, data: number[]) => {
@@ -126,51 +125,7 @@ const view_matrix = (dtype: ScalarType, data: number[]) => {
 const range = (n: number) => Array.from({length: n}, (_, i) => i);
 const zeros = (n: number) => Array.from({length: n}, () => 0);
 
-
-
-
-
-
 const ismat = (k: Kind) => k instanceof Array;
-
-const judge = (...fs: Fun[]): "mat" | "scalar" | "err" | "unk" =>{
-
-  const take = () => fs.shift();
-  
-  let go = (): "mat" | "scalar" | "err" | "unk" => {
-
-    let f = take();
-    if (f === undefined) return "unk";
-
-    if (f.tag == "const") return ismat(f.kind) ? "mat" : "scalar";
-
-    let x = go();
-    if (x == "err") return x
-
-    if (f.tag == "reduce"){
-      if (x == "scalar") return "err";
-      return x;
-    }
-
-    if (f.tag == "move"){
-      if (x == "scalar") return "err";
-      if (x == "mat") return "scalar";
-      return x;
-    }
-
-    if (f.tag == "binary"){
-      let y = go();
-      if (y == "err") return y
-      if (y == "mat" || x == "mat") return "mat";
-      if (x == "unk" || y == "unk") return "unk";
-      return "scalar";
-    }
-  }
-
-  return go();
-}
-
-
 const into = (k: Kind, e: Kind, x: Raw): Raw => {
 
 
@@ -330,8 +285,6 @@ let add : Fun = {
 
 
 
-
-
 const view = (...ast: Ast[]) => {
   let f = app(...ast);
   if (f.tag == "const"){
@@ -392,13 +345,8 @@ const unary = (T: ScalarType[], f: (x: number)=> number) : Ast[] => {
 }
 
 const inc = unary(["number"], (x) => x + 1)
-
 const add2 = binary(["number", "number"], (x, y) => x + y)
-
-
 const myfield = matrix("block", range(16))
-
-
 const get_color = unary(["color", "color"], (x) => x)
 const get_value = unary(["number", "number"], (x) => x)
 
@@ -424,9 +372,9 @@ const eq = binary(["block", "boolean"], (x, y) => x == null ? null : y == null ?
 const or = binary(["boolean"], (x,y) => x || y)
 const and = binary(["boolean"], (x,y) => x && y)
 
-const red = [eq, scalar("color", 0), get_color]
-const green = [eq, scalar("color", 1), get_color]
-const blue = [eq, scalar("color", 2), get_color]
+const red = [eq, scalar("color", 1), get_color]
+const green = [eq, scalar("color", 2), get_color]
+const blue = [eq, scalar("color", 3), get_color]
 
 const all = reduce("boolean", 1, (x: number, y: number) => x && y)
 const any = reduce("boolean", 0, (x: number, y: number) => x || y)
@@ -436,18 +384,18 @@ const prod = reduce("number", 1, (x,y) => x * y)
 
 
 
-const n = null;
+const n = 0;
 
 let fields = [
   [
     n,n,n,n,
-    n,n,0,n,
-    n,0,n,n,
+    n,n,1,n,
+    n,1,n,n,
     n,n,n,n,
   ],
   [
     n,n,n,n,
-    n,4,0,n,
+    n,4,1,n,
     n,n,n,n,
     n,n,6,n,
   ],
@@ -459,9 +407,19 @@ let fields = [
   ],
 ].map(f => matrix("block", f) )
 
+
+view(get_color, fields[1])
+view(get_value, fields[1])
+view(and, fields[1], fields[1])
+view(get_value, get_color, fields[1])
+
 let X : Fun = {tag: "source", kind: ["matrix", "block"]}
 
-let RX = compile(any, and, green, X, red, right, X)
+
+let RX = compile(or, blue, X, red, X)
+
+
+fields.map(f=>view(f))
 
 fields.map(f=>{
   let res = (RX(f))
