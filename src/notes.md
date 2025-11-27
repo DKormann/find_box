@@ -17,3 +17,7 @@ generate JS optimized code for each rule
 
 rule uses only one static allocated array that holds all temporary data as well. the array is allocated at function creation time.
 
+
+update:
+around 400k with loop inlining.
+

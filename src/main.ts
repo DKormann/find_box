@@ -61,7 +61,11 @@ type Shaped = {
   tag: Ast["tag"],
   template: Ast["template"],
   offset: number,
-  ismat: boolean, srcs: Shaped[]}
+  ismat: boolean,
+  srcs: Shaped[],
+  dst: number,
+}
+
 let mat_size = 16;
 
 
@@ -85,6 +89,7 @@ const compile = (buf: Ast) => {
       buf.tag == "reduce" || buf.tag == "scalar" ? false : buf.tag == "source" || buf.tag == "move" ? true : srcs.some(b=>b.ismat),
       srcs,
       offset: buf.tag == "source" ? 0 : tmp_size,
+      dst: 1
     }
     if (buf.tag == "source") tmp_size += 0;
     if (shaped.ismat) tmp_size += mat_size;
@@ -94,18 +99,24 @@ const compile = (buf: Ast) => {
   }
   walk(buf);
 
+  lin.map(x=>console.log(x))
+
   const code = lin.map((b, i)=> {
-    let srcname = b.srcs.map(b=>`L[${b.offset}${b.ismat ? " + i" : ""}]`);
+    let srcname = (i:number) => b.srcs.map(b=>`L[${b.offset + i}]`);
     let Loff = `L[${b.offset}]`;
     if (b.tag == "source") return "";
     if (b.tag == "scalar") return `${Loff} = ${b.template(0, [])};`;
     if (b.tag == "math") {
-      if (b.ismat) return `for (let i = 0; i < ${mat_size}; i++) L[${b.offset} + i] = ${b.template(i, srcname)};`
-      return `${Loff} = ${b.template(0, srcname)};`;
+      if (b.ismat){
+        let ret = "";
+        for (let i = 0; i < mat_size; i++)  ret += `L[${b.offset + i}] = ${b.template(i, srcname(i))};\n`
+        return ret;
+      }
+      return `${Loff} = ${b.template(0, srcname (0))};`;
     }
 
     if (b.tag == "move") {
-      let ret = "";
+      let ret = "//move\n";
       for (let i = 0; i < mat_size; i++) {
         let idx = Number(b.template(i, []));
         if (idx > 0 && idx < mat_size) ret += `L[${b.offset + i}] = L[${b.srcs[0].offset + idx}];\n`;
@@ -135,26 +146,25 @@ const compile = (buf: Ast) => {
 
 const math_ast = (template: (...src:string[]) => string) => (...srcs:Ast[]) : Ast =>  ({tag: "math", template : (_:number, src : string[]) => template(...src), srcs,})
 
-const cast_scalar = (X: ScalarType, Y: ScalarType) => (x: Ast) : Ast => {
-
-  if (X == Y) return x;
-  if (X == "boolean") return x;
-
-  return math_ast((a) => {
-    if (Y == "boolean") return `(${a} ? 1 : 0)`
-    if (X == "number") {
-      if (Y == "color") return `(${a} % 3)`
-      if (Y == "block") return `(${a} * 3)`
-    }
-    if (X == "color") {
-      if (Y == "number") return `(${a} % 3)`
-      if (Y == "block") return `(${a} * 3)`
-    }
-    if (X == "block") {
-      if (Y == "number") return `(${a} == 0 ? 0 : (${a}+2) / 3)`
-      if (Y == "color") return `(${a} == 0 ? 0 : (${a}-1) % 3 + 1)`
-    }
-  })(x)
+const cast_scalar = (X: ScalarType, Y: ScalarType) => {
+  if (X == Y || X == "boolean") return null;
+  return (x: Ast) : Ast => {
+    return math_ast((a) => {
+      if (Y == "boolean") return `(${a} ? 1 : 0)`
+      if (X == "number") {
+        if (Y == "color") return `(${a} % 3)`
+        if (Y == "block") return `(${a} * 3)`
+      }
+      if (X == "color") {
+        if (Y == "number") return `(${a} % 3)`
+        if (Y == "block") return `(${a} * 3)`
+      }
+      if (X == "block") {
+        if (Y == "number") return `(${a} == 0 ? 0 : (${a}+2) / 3)`
+        if (Y == "color") return `(${a} == 0 ? 0 : (${a}-1) % 3 + 1)`
+      }
+    })(x)
+  }
 }
 
 type Fun =
@@ -225,14 +235,15 @@ const right = move_dir(1, 0)
 const add = math(2, (a,b) => `(${a} + ${b})`, "number", "number", "number")
 const not = math(1, (x) => `(!${x})`, "boolean")
 
-const any = reduce(0, (x,y) => `(${x} || ${y})`, "boolean")
-const and = math(2, (x,y) => `(${x} && ${y})`, "boolean")
-const eq = math(2, (a,b) => `(${a} == ${b})`,  "block", "boolean")
+const any = reduce(0, (x,y) => `${x} || ${y}`, "boolean")
+const and = math(2, (x,y) => `${x} && ${y}`, "boolean")
+const eq = math(2, (a,b) => `${a} == ${b}`,  "block", "boolean")
 
 const get_color = math(1, x=>x, "color")
 
+type Const = Fun & {tag: "const"}
 
-const chain = (...fs: Fun[]) =>{
+const chain = (...fs: Fun[]) : Const =>{
   let go = () : Fun & {tag: "const"}=> {
     let f = fs.shift();
     if (f.arity == 0) return f as Fun & {tag: "const"}
@@ -241,8 +252,15 @@ const chain = (...fs: Fun[]) =>{
       let {result, ast} = go();
       return {tag: "const",result: result,arity: 0,ast: f.ast(ast)}
     }
-    let srcs = Array.from({length: f.arity}, go).map(s=> cast_scalar(s.result, (f as Fun & {expect: ScalarType}).expect)(s.ast));
-    return {tag: "const",result: f.result,arity : 0,ast: (f as Fun & {tag: "math"}).ast(...srcs)}
+    let ast = f.ast as (...srcs:Ast[]) => Ast;
+    let srcs = Array.from({length: f.arity}, go).map(s=> {
+      let caster =  cast_scalar(s.result, (f as Fun & {expect: ScalarType}).expect)
+      return caster ? caster(s.ast) : s.ast
+    });
+    
+    let a = ast(...srcs);
+    console.log(a)
+    return {tag: "const",result: f.result,arity : 0,ast: a}
   }
   return go();
 }
@@ -292,6 +310,6 @@ for (let i = 0; i < IT; i++) {
 
 let et = performance.now();
 let dt = et - st;
-console.log(`${IT / dt * 1000} rules per second`);
+console.log(`${Math.round(IT / dt)} k rules per second`);
 
 view_rule(F)
