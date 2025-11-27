@@ -152,7 +152,7 @@ const mkinto = (k: Kind, e: Kind): ((x:Raw) => Raw) => {
   throw new Error("Invalid type conversion");
 }
 
-const compile = ( ...a: Ast[]): (x:Fun & {content: Raw})=>Fun => {
+const wire = ( ...a: Ast[]): (x:Fun & {content: Raw})=>Fun => {
 
   let fs = a.flat(10) as Fun[];
   let take = () => fs.shift();
@@ -211,14 +211,6 @@ const compile = ( ...a: Ast[]): (x:Fun & {content: Raw})=>Fun => {
 }
 
 
-
-
-let add : Fun = {
-  tag: "binary",
-  expect: ["number", "number"],
-  result: "number",
-  runner: (x, y) => x + y
-}
 
 
 
@@ -312,16 +304,21 @@ const eq = binary(["block", "boolean"], (x, y) => x == y ? 1 : 0)
 
 const or = binary(["boolean"], (x,y) => x || y)
 const and = binary(["boolean"], (x,y) => x && y)
-
-const red = [eq, scalar("color", 1), get_color]
-const green = [eq, scalar("color", 2), get_color]
-const blue = [eq, scalar("color", 3), get_color]
+const check_id = (kind: ScalarType, id: number) => unary([kind, "boolean"], (x) => x == id ? 1 : 0)
+const blue = check_id("color", 3)
+const green = check_id("color", 2)
+const red = check_id("color", 1)
 
 const all = reduce("boolean", 1, (x: number, y: number) => x && y)
 const any = reduce("boolean", 0, (x: number, y: number) => x || y)
 const sum = reduce("number", 0, (x,y) => x + y)
 const prod = reduce("number", 1, (x,y) => x * y)
 const not = unary(["boolean"], x => x == 0 ? 1 : 0)
+
+const add = binary(["number", "number"], (x, y) => x + y)
+
+
+
 
 
 
@@ -351,9 +348,15 @@ let fields = [
 
 let X : Fun = {tag: "source", kind: ["matrix", "block"]}
 
-const rule = (f:Fun) => [not, any, or, blue, f, green, f]
+// const rule = (f:Fun) =>  [any, or, blue, f, green, f]
 
-let RX = compile(rule(X))
+
+
+
+const rule = (f:Fun) => [not, any, and, get_color, f, eq, get_color, f, right, get_color, f, ]
+
+
+let RX = wire(rule(X))
 
 
 
