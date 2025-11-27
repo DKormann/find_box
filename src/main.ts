@@ -291,7 +291,11 @@ const view = (...ast: Ast[]) => {
     if (ismat(f.kind)){
       return put(view_matrix(f.kind[1], f.content as number[]))
     }
-    return put(view_scalar(f.kind, f.content as number))
+    return put(
+      div(
+        {style: {border: "1px solid #888", width: blockSize}},
+        view_scalar(f.kind, f.content as number))
+      )
   }
 }
 
@@ -416,7 +420,7 @@ view(get_value, get_color, fields[1])
 let X : Fun = {tag: "source", kind: ["matrix", "block"]}
 
 
-let RX = compile(or, blue, X, red, X)
+let RX = compile(any, or, blue, X, red, X)
 
 
 fields.map(f=>view(f))
