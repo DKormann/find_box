@@ -172,7 +172,7 @@ export const popup = (...cs:HTMLArg[])=>{
 
 const body = document.body;
 
-export const show = (x:any)=>{
+export const show = (...x:any[])=>{
 
   const parse = (x: any) => {
     let typ : string = typeof x;
@@ -291,12 +291,13 @@ export const show = (x:any)=>{
           marginRight: "0.5em",
         }
       },
-      typ ? typ + ":" : "",),
-      ret
+      // typ ? typ + ":" : "",
+    ),
+    ret
     )
   }
 
-  body.appendChild(p(parse(x)))
+  body.appendChild(p(x.map(parse)))
 }
 
 

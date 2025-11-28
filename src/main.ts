@@ -50,7 +50,6 @@ const view_matrix = (dtype: ScalarType, data: Int32Array) => {
   )
 }
 
-
 type Ast = {
   tag: "move" | "reduce" | "math" | "scalar" | "source"
   template : (i: number, src:string[]) => string | number
@@ -59,30 +58,9 @@ type Ast = {
 const SRC: Ast = {tag: "source", template: () => "", srcs: []}
 const scalar = (x: number) : Ast => ({tag: "scalar", template: ()=> x, srcs: []})
 
-
-type Shaped = {
-  tag: Ast["tag"],
-  template: Ast["template"],
-  ismat: boolean,
-  srcs: Shaped[],
-  dst: number,
-}
-
 let mat_size = 16;
-
-
 const range = (i:number) => Array.from({length: i}, (_, k) => k);
-
-
-
 const math_ast = (template: (...src:string[]) => string) => (...srcs:Ast[]) : Ast =>  ({tag: "math", template : (_:number, src : string[]) => template(...src), srcs,})
-
-{
-  const adder = math_ast((a,b) => `(${a} + ${b})`)
-  show(adder(scalar(1), SRC));
-}
-
-
 
 const cast_scalar = (X: ScalarType, Y: ScalarType) => {
   if (X == Y || X == "boolean") return null;
@@ -206,29 +184,22 @@ const raster = (x: Ast) => {
 
   const walk = (ast: Ast) : boolean => {
     if (ctx.has(ast)) return lin[ctx.get(ast)].ismat;
-    let matin = ast.srcs.some(walk)
-    ctx.set(ast, lin.length);
+    let matin = ast.srcs.map(walk).some(x=>x);
     let ismat = (ast.tag == "reduce" || ast.tag == "scalar") ? false : ast.tag == "source" ? true : matin;
+    ctx.set(ast, lin.length);
     lin.push({ast, ismat});
     return ismat;
   }
   let ismat = walk(x);
-  show(lin)
 
   type key = number;
-
   type CacheEntry = {
-    template: (srcs: string[]) => string,
+    template: (srcs: string[]) => string
     srcs: key[]
     uses: number
   }
-  
   const cache = new Map<key, CacheEntry> ();
-
   const go = (ast: Ast, i: number) : key => {
-
-    console.log(ctx.get(ast))
-
     if (! lin[ctx.get(ast)].ismat) i = 0;
     let key = ctx.get(ast) * 100 + i;
     if (cache.has(key)) {
@@ -241,7 +212,7 @@ const raster = (x: Ast) => {
     if (ast.tag == "math") srcs = ast.srcs.map(s=>go(s, i));
     if (ast.tag == "reduce") {
       srcs = range(mat_size).map(i => go(ast.srcs[0], i));
-      template = (i, src) => src.reduce((a,b,i) => ast.template(i, [a,b]) as string, "");
+      template = (_, src) => src.reduce((a,b,i) => ast.template(i, [a,b]) as string, "");
     }
     if (ast.tag == "move") {
       let j  = ast.template(i, []) as number;
@@ -250,94 +221,109 @@ const raster = (x: Ast) => {
     }
     if (ast.tag == "source") template = () => `L[${i}]`;
     let res : CacheEntry = {template: (s) => template(0,s) as string , srcs, uses: 1};
-
     cache.set(key, res);
+
+    srcs.forEach(k=>{
+      if (res.template(srcs.map(k=> `$${k}$`)).split(`$${k}$`).length - 1 > 1) cache.get(k).uses ++;
+    })
     return key;
   }
 
   let ret = ismat ? range(mat_size).map(i=>go(x, i)) : [go(x, 0)]
+  let code = "";
+  let vars = new Set<number>();
 
-  let code = Array.from(cache.entries()).sort((a,b) => a[0] - b[0]).map(([key, value]) => `x${key} = ${value.template(value.srcs.map(k=> `x${k}`))};\n`).join("")
+  const render = (key: number) =>{
 
-   + `return [${ret.map(k=> `x${k}`).join(", ")}];`
+    if (vars.has(key)) return `x${key}`;
 
+    let entry = cache.get(key);
+    let c = entry.template(entry.srcs.map(k=> render(k)));
+
+    if (entry.uses > 1) {
+      if (!vars.has(key)) code += `x${key} = ${c};\n`;
+      vars.add(key);
+      return `x${key}`;
+    }
+    return `(${c})`;
+  }
+
+  Array.from(cache.entries()).sort((a,b) => a[0] - b[0]).forEach(([key, value]) => render(key));
+  code += `return [${ret.map(k=> render(k)).join(",\n")}];`
   return code;
-
-
 }
 
 const compile = (rule: Fun[]) : [ScalarType, (L: Int32Array) => Int32Array] => {
-  show(rule)
   let cc = chain(...rule);
-  show("CC:")
-  show(cc.ast)
   let code = raster(cc.ast);
   console.log(code)
   return [cc.result, new Function("L", code) as (L: Int32Array) => Int32Array];
 }
 
+const view_rule = (X: Int32Array, rule: Fun[]) => {
 
+  let [T, F] = compile(rule);
+  let res = F(X);
 
-// const rule = [not, any, and, get_color, src, eq, get_color, src, right, get_color, src]
-const rule = [eq, src, get_color, src]
-compile(rule)
-
-
-
-
-
-// const view_rule = (X: Int32Array, rule: Fun[]) => {
-
-//   let [T, F] = compile(rule);
-//   let res = F(X);
-
-//   if (res.length == 1) put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, res[0])));
-//   else put(view_matrix(T, res));
-// }
+  if (res.length == 1) put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, res[0])));
+  else put(view_matrix(T, res));
+}
 
 
 
 
-// let n = 0;
-// let fields = [
-//   [
-//     n,n,n,n,
-//     n,n,1,n,
-//     n,1,n,n,
-//     n,n,n,n,
-//   ],
-//   [
-//     n,n,n,n,
-//     n,4,1,n,
-//     n,n,n,n,
-//     n,n,6,n,
-//   ],
-//   [
-//     n,n,n,n,
-//     n,14,n,n,
-//     1,2,n,n,
-//     n,n,n,n,
-// ]].map(f => Int32Array.from(f))
+let n = 0;
+let fields = [
+  [
+    n,n,n,n,
+    n,n,1,n,
+    n,1,n,n,
+    n,n,n,n,
+  ],
+  [
+    n,n,n,n,
+    n,4,1,n,
+    n,n,n,n,
+    n,n,6,n,
+  ],
+  [
+    n,n,n,n,
+    n,14,n,n,
+    1,2,n,n,
+    n,n,n,n,
+]].map(f => Int32Array.from(f))
 
-// const rule = [not, any, and, get_color, src, eq, get_color, src, right, get_color, src]
-// const [T, F] = compile(rule)
+const rule = [not, any, and, get_color, src, eq, get_color, src, right, get_color, src]
+
+const [T, F] = compile(rule)
 
 
-// // const IT = 200000;
-// // let st = performance.now();
-// // for (let i = 0; i < IT; i++) {
-// //   F(fields[i % fields.length])
-// // }
+const IT = 200000;
+let st = performance.now();
+for (let i = 0; i < IT; i++) {
+  F(fields[i % fields.length])
+}
 
-// // let et = performance.now();
-// // let dt = et - st;
-// // console.log(`${Math.round(IT / dt)} k rules per second`);
+let et = performance.now();
+let dt = et - st;
+console.log(`${Math.round(IT / dt)} k rules per second`);
 
-// // fields.forEach(f=>{
-// //   console.log(f)
-// //   let it = (view_matrix("block", f))
-// //   put(it)
-// //   view_rule(f, rule)
-// // })
+fields.forEach(f=>{
+  let it = (view_matrix("block", f))
+  put(it)
+  view_rule(f, rule)
+})
+
+
+
+fields.forEach(f=>{
+  let it = (view_matrix("block", f))
+  put(it)
+  view_rule(f, [
+    right, right, get_color, src
+  ])
+})
+
+
 
 
