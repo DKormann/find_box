@@ -200,6 +200,8 @@ const chain = (...fs: Fun[]) : Const =>{
 }
 
 
+
+
 const compile = (rule: Fun[]) : [ScalarType, (field: Int32Array) => Int32Array] => {
 
   let cc = chain(...rule);
@@ -210,7 +212,6 @@ const compile = (rule: Fun[]) : [ScalarType, (field: Int32Array) => Int32Array] 
   const walk = (buf: Ast) : Shaped => {
 
     if (seen.has(buf)){
-      console.log("seen", buf);
       let res = lin[seen.get(buf)];
       res.dst ++ ;
       return res;
@@ -262,10 +263,7 @@ const compile = (rule: Fun[]) : [ScalarType, (field: Int32Array) => Int32Array] 
       for (let j = 0; j < mat_size; j++) ret = b.template(j, [get_name(b.srcs[0], j), ret]) as string;
       ret = `${get_name()} = ${ret};`
     }
-
-
     return ret;
-
   }).join("\n") + `\nreturn [${range(lin[lin.length-1].ismat? 16 : 1).map((i) => `X_${lin.length - 2}_${i}`).join(", ")}];`;
 
   console.log(code);
