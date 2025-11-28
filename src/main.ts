@@ -75,89 +75,11 @@ const range = (i:number) => Array.from({length: i}, (_, k) => k);
 
 
 
-show(x=>x+2);
-
-
-const compile = (buf: Ast) => {
-  let seen = new Map<Ast, number>();
-  let lin : Shaped[] = [];
-
-  const walk = (buf: Ast) : Shaped => {
-
-    if (seen.has(buf)){
-      console.log("seen", buf);
-      let res = lin[seen.get(buf)];
-      res.dst ++ ;
-      return res;
-    }
-    seen.set(buf, 1);
-    let srcs = buf.srcs.map(walk);
-    seen.set(buf, lin.length);
-  
-    
-    let shaped: Shaped = {
-      ...buf,
-      ismat:
-      buf.tag == "reduce" || buf.tag == "scalar" ? false : buf.tag == "source" || buf.tag == "move" ? true : srcs.some(b=>b.ismat),
-      srcs,
-      dst: 1,
-    }
-
-    lin.push(shaped);
-    return shaped;
-  }
-  walk(buf);
-
-
-  const code = lin.map((b, k)=> {
-
-    let get_name = (buf: Shaped = b, i:number = 0) => `X_${lin.indexOf(buf)}_${i}`;
-    let srcname = (i:number) => b.srcs.map(b=> get_name(b, i));
-    
-    let ret = "";
-    if (b.tag == "source") {
-      for (let i = 0; i < mat_size; i++) ret += `${get_name(b, i)} = L[${i}];\n`;
-    }
-    if (b.tag == "scalar") ret = `${get_name()} = ${b.template(0, [])};`;
-    if (b.tag == "math") {
-      if (b.ismat)
-        for (let i = 0; i < mat_size; i++)  ret += `${get_name(b, i)} = ${b.template(i, srcname(i))};\n`
-      else ret = `${get_name()} = ${b.template(0, srcname (0))};`;
-    }
-
-    if (b.tag == "move") {
-      ret = "//move\n";
-      for (let i = 0; i < mat_size; i++) {
-        let idx = Number(b.template(i, []));
-        if (idx > 0 && idx < mat_size) ret += `let ${get_name(b,i)} = ${get_name(b.srcs[0], idx)};\n`;
-        else ret += `let ${get_name(b,i)} = 0;\n`;
-      }
-    }
-    if (b.tag == "reduce") {
-      for (let j = 0; j < mat_size; j++) ret = b.template(j, [get_name(b.srcs[0], j), ret]) as string;
-      ret = `${get_name()} = ${ret};`
-    }
-
-
-    return ret;
-
-  }).join("\n") + `\nreturn [${range(lin[lin.length-1].ismat? 16 : 1).map((i) => `X_${lin.length - 2}_${i}`).join(", ")}];`;
-
-  console.log(code);
-
-  const func = new Function("L", code);
-  return func;
-}
-
 const math_ast = (template: (...src:string[]) => string) => (...srcs:Ast[]) : Ast =>  ({tag: "math", template : (_:number, src : string[]) => template(...src), srcs,})
 
 {
-
-
   const adder = math_ast((a,b) => `(${a} + ${b})`)
-
-  show(adder(scalar(1), scalar(2)));
-
+  show(adder(scalar(1), SRC));
 }
 
 
@@ -183,8 +105,7 @@ const cast_scalar = (X: ScalarType, Y: ScalarType) => {
   }
 }
 
-type Fun =
-{
+type Fun = {
   tag : "move"
   arity: 1,
   ast: (...srcs:Ast[]) => Ast
@@ -253,6 +174,7 @@ const any = reduce(0, (x,y) => `${x} || ${y}`, "boolean")
 const and = math(2, (x,y) => `${x} && ${y}`, "boolean")
 const eq = math(2, (a,b) => `${a} == ${b}`,  "block", "boolean")
 const get_color = math(1, x=>x, "color")
+const const_ = (x: number): Fun => ({tag: "const", result: "number", arity: 0, ast: scalar(x)})
 type Const = Fun & {tag: "const"}
 
 const chain = (...fs: Fun[]) : Const =>{
@@ -278,6 +200,111 @@ const chain = (...fs: Fun[]) : Const =>{
 }
 
 
+const compile = (rule: Fun[]) : [ScalarType, (field: Int32Array) => Int32Array] => {
+
+  let cc = chain(...rule);
+
+  let seen = new Map<Ast, number>();
+  let lin : Shaped[] = [];
+
+  const walk = (buf: Ast) : Shaped => {
+
+    if (seen.has(buf)){
+      console.log("seen", buf);
+      let res = lin[seen.get(buf)];
+      res.dst ++ ;
+      return res;
+    }
+    seen.set(buf, 1);
+    let srcs = buf.srcs.map(walk);
+    seen.set(buf, lin.length);
+  
+    
+    let shaped: Shaped = {
+      ...buf,
+      ismat:
+      buf.tag == "reduce" || buf.tag == "scalar" ? false : buf.tag == "source" || buf.tag == "move" ? true : srcs.some(b=>b.ismat),
+      srcs,
+      dst: 1,
+    }
+
+    lin.push(shaped);
+    return shaped;
+  }
+
+  walk(cc.ast);
+
+  const code = lin.map((b, k)=> {
+
+    let get_name = (buf: Shaped = b, i:number = 0) => `X_${lin.indexOf(buf)}_${i}`;
+    let srcname = (i:number) => b.srcs.map(b=> get_name(b, i));
+    
+    let ret = "";
+    if (b.tag == "source") {
+      for (let i = 0; i < mat_size; i++) ret += `${get_name(b, i)} = L[${i}];\n`;
+    }
+    if (b.tag == "scalar") ret = `${get_name()} = ${b.template(0, [])};`;
+    if (b.tag == "math") {
+      if (b.ismat)
+        for (let i = 0; i < mat_size; i++)  ret += `${get_name(b, i)} = ${b.template(i, srcname(i))};\n`
+      else ret = `${get_name()} = ${b.template(0, srcname (0))};`;
+    }
+
+    if (b.tag == "move") {
+      ret = "//move\n";
+      for (let i = 0; i < mat_size; i++) {
+        let idx = Number(b.template(i, []));
+        if (idx > 0 && idx < mat_size) ret += `let ${get_name(b,i)} = ${get_name(b.srcs[0], idx)};\n`;
+        else ret += `let ${get_name(b,i)} = 0;\n`;
+      }
+    }
+    if (b.tag == "reduce") {
+      for (let j = 0; j < mat_size; j++) ret = b.template(j, [get_name(b.srcs[0], j), ret]) as string;
+      ret = `${get_name()} = ${ret};`
+    }
+
+
+    return ret;
+
+  }).join("\n") + `\nreturn [${range(lin[lin.length-1].ismat? 16 : 1).map((i) => `X_${lin.length - 2}_${i}`).join(", ")}];`;
+
+  console.log(code);
+
+
+  const func = new Function("L", code) as (L: Int32Array) => Int32Array;
+  return [cc.result, func];
+}
+
+
+
+
+const view_rule = (X: Int32Array, rule: Fun[]) => {
+
+
+  let [T, F] = compile(rule);
+  let res = F(X);
+
+  if (res.length == 1) put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, res[0])));
+  else put(view_matrix(T, res));
+}
+
+{
+
+  let ast = [add, const_(1), src]
+
+  show(ast)
+
+  show(chain(...ast))
+
+  let [T, F] = compile(ast)
+
+  show(F(Int32Array.from([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])))
+
+
+}
+
+
+
 
 let n = 0;
 let fields = [
@@ -300,18 +327,8 @@ let fields = [
     n,n,n,n,
 ]].map(f => Int32Array.from(f))
 
-const cc = chain(not, any, and, get_color, src, eq, get_color, src, right, get_color, src)
-const F = compile(cc.ast)
-
-const view_rule = (F: Function) => {
-
-  fields.forEach(f => {
-    put(view_matrix("block", f))
-    let ret = F(f);
-    if (ret.length == 1) return put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(cc.result, ret[0])));
-    put(view_matrix(cc.result, ret))
-  })
-}
+const rule = [not, any, and, get_color, src, eq, get_color, src, right, get_color, src]
+const [T, F] = compile(rule)
 
 
 const IT = 200000;
@@ -324,5 +341,11 @@ let et = performance.now();
 let dt = et - st;
 console.log(`${Math.round(IT / dt)} k rules per second`);
 
-view_rule(F)
+fields.forEach(f=>{
+  console.log(f)
+  let it = (view_matrix("block", f))
+  put(it)
+  view_rule(f, rule)
+})
+
 
