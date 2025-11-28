@@ -1,4 +1,4 @@
-import { div, h2, html, p, span } from "./html"
+import { div, h2, html, p, show, span } from "./html"
 
 const doc = div(
   {class: "document",
@@ -9,6 +9,9 @@ const doc = div(
     }
   }
 )
+
+document.body.style.paddingBottom = "200px";
+
 document.body.appendChild(doc)
 
 function put(...el:HTMLElement[]){
@@ -17,7 +20,7 @@ function put(...el:HTMLElement[]){
 }
 
 const blockSize = "40px";
-const colors = ["var(--background-color)", "red", "green", "#0044FF", "var(--color)"]
+const colors = ["var(--background)", "red", "green", "#0044FF", "var(--color)"]
 type ScalarType = "block" | "color" | "number" | "boolean"
 
 
@@ -39,7 +42,7 @@ const view_matrix = (dtype: ScalarType, data: Int32Array) => {
     return div({style:{
       display: "flex",
       "flex-wrap": "wrap",
-      "background-color": "#111",
+      "background": "#111",
       border: "1px solid #888",
       "width": `calc(${blockSize} * 4)`
     }}, 
@@ -54,7 +57,7 @@ type Ast = {
   srcs: Ast[]
 }
 const SRC: Ast = {tag: "source", template: () => "", srcs: []}
-const scalar = (x: number) : Ast => ({tag: "scalar", template: () => x.toString(), srcs: []})
+const scalar = (x: number) : Ast => ({tag: "scalar", template: ()=> x, srcs: []})
 
 
 type Shaped = {
@@ -69,6 +72,11 @@ let mat_size = 16;
 
 
 const range = (i:number) => Array.from({length: i}, (_, k) => k);
+
+
+
+show(x=>x+2);
+
 
 const compile = (buf: Ast) => {
   let seen = new Map<Ast, number>();
@@ -100,8 +108,6 @@ const compile = (buf: Ast) => {
   }
   walk(buf);
 
-
-  const cache = new Map<Shaped, string>();
 
   const code = lin.map((b, k)=> {
 
@@ -144,6 +150,17 @@ const compile = (buf: Ast) => {
 }
 
 const math_ast = (template: (...src:string[]) => string) => (...srcs:Ast[]) : Ast =>  ({tag: "math", template : (_:number, src : string[]) => template(...src), srcs,})
+
+{
+
+
+  const adder = math_ast((a,b) => `(${a} + ${b})`)
+
+  show(adder(scalar(1), scalar(2)));
+
+}
+
+
 
 const cast_scalar = (X: ScalarType, Y: ScalarType) => {
   if (X == Y || X == "boolean") return null;
@@ -189,10 +206,8 @@ const math = (arity: number,f: (... x: string[]) => string, ...T: ScalarType[]) 
   if (T.length == 1) T = [T[0], T[0]];
   return {
     tag: "math",
-    expect: T[0],
-    result: T[1],
-    arity,
-    ast: math_ast(f)
+    expect: T[0], result: T[1],
+    arity, ast: math_ast(f)
   }
 }
 
