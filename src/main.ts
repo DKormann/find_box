@@ -50,93 +50,114 @@ const view_matrix = (dtype: ScalarType, data: Int32Array) => {
   )
 }
 
-type Ast = {
-  tag: "move" | "reduce" | "math" | "scalar" | "source"
-  template : (i: number, src:string[]) => string | number
-  srcs: Ast[]
-}
-const SRC: Ast = {tag: "source", template: () => "", srcs: []}
-const scalar = (x: number) : Ast => ({tag: "scalar", template: ()=> x, srcs: []})
-
 let mat_size = 16;
 const range = (i:number) => Array.from({length: i}, (_, k) => k);
-const math_ast = (template: (...src:string[]) => string) => (...srcs:Ast[]) : Ast =>  ({tag: "math", template : (_:number, src : string[]) => template(...src), srcs,})
 
-const cast_scalar = (X: ScalarType, Y: ScalarType) => {
-  if (X == Y || X == "boolean") return null;
-  return (x: Ast) : Ast => {
-    return math_ast((a) => {
-      if (Y == "boolean") return `(${a} ? 1 : 0)`
-      if (X == "number") {
-        if (Y == "color") return `(${a} % 3)`
-        if (Y == "block") return `(${a} * 3)`
-      }
-      if (X == "color") {
-        if (Y == "number") return `(${a} % 3)`
-        if (Y == "block") return `(${a} * 3)`
-      }
-      if (X == "block") {
-        if (Y == "number") return `(${a} == 0 ? 0 : (${a}+2) / 3 | 0)`
-        if (Y == "color") return `(${a} == 0 ? 0 : (${a}-1) % 3 + 1)`
-      }
-    })(x)
-  }
+type ALU = string; // template
+
+type Source = {
+  tag: "source"
+  index: number
+}
+
+type ALUOp = {
+  tag: "ALUOp"
+  alu: ALU
+  srcs: Atom[]
+}
+
+type Atom = Source | ALUOp;
+
+
+type Tensor = {
+  tag: "tensor"
+  data: Atom[]
+  type: ScalarType
 }
 
 type Fun = {
-  tag : "move"
-  arity: 1,
-  ast: (...srcs:Ast[]) => Ast
-} | {
-  tag : "math"
+  tag: "alu"
+  alu: ALU
   expect: ScalarType
   result: ScalarType
   arity: number
-  ast: (...srcs:Ast[]) => Ast
 } | {
-  tag : "const"
-  arity: 0
-  result: ScalarType
-  ast: Ast    
+  tag: "reduce"
+  alu: ALU
+} | {
+  tag: "move"
+  move: (i: number) => number
+} | Tensor
+
+
+const SRC: Fun = {
+  tag: "tensor",
+  data: range(mat_size).map(i=> ({tag: "source", index: i})),
+  type: "block"
 }
 
-const math = (arity: number,f: (... x: string[]) => string, ...T: ScalarType[]) : Fun => {
+
+const cast_scalar = (X: ScalarType, Y: ScalarType, t: Tensor): Tensor => {
+
+  if (X == Y || X == "boolean") return t;
+
+  let alu: string =
+    Y == "boolean" ? "($0 ? 1 : 0)" :
+    X == "number" ? (
+      Y == "color" ? "($0 % 3)" :
+      Y == "block" ? "($0 * 3)" :
+      "ERR"
+    ) :
+    X == "color" ? (
+      Y == "number" ? "($0 % 3)" :
+      Y == "block" ? "($0 * 3)" :
+      "ERR"
+    ) :
+    X == "block" ? (
+      Y == "number" ? "($0 == 0 ? 0 : ($0+2) / 3 | 0)" :
+      Y == "color" ? "($0 == 0 ? 0 : ($0-1) % 3 + 1)" :
+      "ERR"
+    ) :
+    "ERR";
+
+  return { tag: "tensor", type: Y, data: t.data.map(x=>({tag: "ALUOp", alu, srcs: [x]}))}
+}
+
+
+const alu = (srcs: Atom[], alu: string): Atom => ({tag: "ALUOp", alu, srcs})
+const const_ = (x: number): Atom => ({tag: "ALUOp", alu: x.toString(), srcs: []})
+
+const app = (f: Fun, x: Tensor[]) : Tensor => {
+  if (f.tag == "tensor") return f
+  let type = x[0].type;
+  let data : Atom[] = [];
+
+  if (f.tag == "alu"){
+    x = x.map(x => cast_scalar(x.type, f.expect, x))
+    let mat = x.some(x=>x.data.length > 1)
+    data = range(mat ? mat_size : 1).map(i=> ({tag: "ALUOp", alu: f.alu, srcs: x.map(x=>x.data[x.data.length > 1 ? i : 0])}))
+    type = f.result;
+  }
+  if (f.tag == "reduce") data = [x[0].data.slice(1).reduce((acc,x)=> alu([acc, x], f.alu), x[0].data[0])]
+  if (f.tag == "move") data = range(mat_size).map(f.move).map(i=> (i > 0 )? x[0].data[i] : const_(0))
+  return {tag: "tensor", data, type}
+}
+
+
+const alufun = (arity: number, alu : string, ...T: ScalarType[]) : Fun => {
   if (T.length == 0) T = ["number"];
   if (T.length == 1) T = [T[0], T[0]];
   return {
-    tag: "math",
+    tag: "alu",
+    alu,
     expect: T[0], result: T[1],
-    arity, ast: math_ast(f)
+    arity
   }
 }
 
-const reduce = (def: number, f: (p: string, acc: string) => string, T: ScalarType = "number") : Fun => {
-  return {
-    tag: "math",
-    expect: T,
-    result: T,
-    arity: 1,
-    ast: (...srcs) => ({
-      tag: "reduce",
-      template: (i: number, [p, acc]: string[]) => i == 0 ? def : f(p, acc),
-      srcs
-    })
-  }
-}
+const redfun = (alu: string) : Fun => ({tag: "reduce", alu})
+const move = (move: (i: number) => number) : Fun => ({tag: "move", move})
 
-const move = (f: (i: number) => number) : Fun => {
-  return {
-    tag: "move",
-    arity: 1,
-    ast: (...srcs) => ({
-      tag: "move",
-      template: f,
-      srcs
-    })
-  }
-}
-
-const src : Fun = { tag: "const", result: "block", arity: 0, ast: SRC }
 
 const move_dir = (dx: number, dy: number) => move(i=>{
   let x = i % 4 + dx;
@@ -144,16 +165,17 @@ const move_dir = (dx: number, dy: number) => move(i=>{
   if (x < 0 || x > 3 || y < 0 || y > 3) return -1;
   return x + y * 4;
 })
-const right = move_dir(1, 0)
-const add = math(2, (a,b) => `(${a} + ${b})`, "number", "number", "number")
-const not = math(1, (x) => `(!${x})`, "boolean")
 
-const any = reduce(0, (x,y) => `${x} || ${y}`, "boolean")
-const and = math(2, (x,y) => `${x} && ${y}`, "boolean")
-const eq = math(2, (a,b) => `${a} == ${b}`,  "block", "boolean")
-const get_color = math(1, x=>x, "color")
-const const_ = (x: number): Fun => ({tag: "const", result: "number", arity: 0, ast: scalar(x)})
-type Const = Fun & {tag: "const"}
+
+const right = move_dir(1, 0)
+const add = alufun(2, "($0 + $1)", "number", "number", "number")
+const not = alufun(1, "(!$0)", "boolean")
+const any = redfun("($0 || $1)")
+const and = alufun(2, "($0 && $1)", "boolean")
+const eq = alufun(2, "($0 == $1)", "block", "boolean")
+const get_color = alufun(1, "$0", "color")
+
+
 
 const chain = (...fs: Fun[]) : Const =>{
   let go = () : Fun & {tag: "const"}=> {
@@ -320,7 +342,7 @@ fields.forEach(f=>{
   let it = (view_matrix("block", f))
   put(it)
   view_rule(f, [
-    right, right, get_color, src
+    eq, src, get_color, src
   ])
 })
 
