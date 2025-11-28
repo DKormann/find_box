@@ -98,7 +98,7 @@ const cast_scalar = (X: ScalarType, Y: ScalarType) => {
         if (Y == "block") return `(${a} * 3)`
       }
       if (X == "block") {
-        if (Y == "number") return `(${a} == 0 ? 0 : (${a}+2) / 3)`
+        if (Y == "number") return `(${a} == 0 ? 0 : (${a}+2) / 3 | 0)`
         if (Y == "color") return `(${a} == 0 ? 0 : (${a}-1) % 3 + 1)`
       }
     })(x)
@@ -193,157 +193,151 @@ const chain = (...fs: Fun[]) : Const =>{
     });
     
     let a = ast(...srcs);
-    console.log(a)
     return {tag: "const",result: f.result,arity : 0,ast: a}
   }
   return go();
 }
 
 
+const raster = (x: Ast) => {
 
+  let ctx = new Map<Ast, number>();
+  let lin : {ast:Ast, ismat: boolean} [] = []
 
-const compile = (rule: Fun[]) : [ScalarType, (field: Int32Array) => Int32Array] => {
+  const walk = (ast: Ast) : boolean => {
+    if (ctx.has(ast)) return lin[ctx.get(ast)].ismat;
+    let matin = ast.srcs.some(walk)
+    ctx.set(ast, lin.length);
+    let ismat = (ast.tag == "reduce" || ast.tag == "scalar") ? false : ast.tag == "source" ? true : matin;
+    lin.push({ast, ismat});
+    return ismat;
+  }
+  let ismat = walk(x);
+  show(lin)
 
-  let cc = chain(...rule);
+  type key = number;
 
-  let seen = new Map<Ast, number>();
-  let lin : Shaped[] = [];
-
-  const walk = (buf: Ast) : Shaped => {
-
-    if (seen.has(buf)){
-      let res = lin[seen.get(buf)];
-      res.dst ++ ;
-      return res;
-    }
-    seen.set(buf, 1);
-    let srcs = buf.srcs.map(walk);
-    seen.set(buf, lin.length);
+  type CacheEntry = {
+    template: (srcs: string[]) => string,
+    srcs: key[]
+    uses: number
+  }
   
-    
-    let shaped: Shaped = {
-      ...buf,
-      ismat:
-      buf.tag == "reduce" || buf.tag == "scalar" ? false : buf.tag == "source" || buf.tag == "move" ? true : srcs.some(b=>b.ismat),
-      srcs,
-      dst: 1,
+  const cache = new Map<key, CacheEntry> ();
+
+  const go = (ast: Ast, i: number) : key => {
+
+    console.log(ctx.get(ast))
+
+    if (! lin[ctx.get(ast)].ismat) i = 0;
+    let key = ctx.get(ast) * 100 + i;
+    if (cache.has(key)) {
+      cache.get(key).uses ++;
+      return key;
     }
 
-    lin.push(shaped);
-    return shaped;
+    let template: (i: number, src: string[]) => string | number = ast.template;
+    let srcs: key[] = [];
+    if (ast.tag == "math") srcs = ast.srcs.map(s=>go(s, i));
+    if (ast.tag == "reduce") {
+      srcs = range(mat_size).map(i => go(ast.srcs[0], i));
+      template = (i, src) => src.reduce((a,b,i) => ast.template(i, [a,b]) as string, "");
+    }
+    if (ast.tag == "move") {
+      let j  = ast.template(i, []) as number;
+      if (j > 0 && j < mat_size) return go(ast.srcs[0], j);
+      template = () => "0";
+    }
+    if (ast.tag == "source") template = () => `L[${i}]`;
+    let res : CacheEntry = {template: (s) => template(0,s) as string , srcs, uses: 1};
+
+    cache.set(key, res);
+    return key;
   }
 
-  walk(cc.ast);
+  let ret = ismat ? range(mat_size).map(i=>go(x, i)) : [go(x, 0)]
 
-  const code = lin.map((b, k)=> {
+  let code = Array.from(cache.entries()).sort((a,b) => a[0] - b[0]).map(([key, value]) => `x${key} = ${value.template(value.srcs.map(k=> `x${k}`))};\n`).join("")
 
-    let get_name = (buf: Shaped = b, i:number = 0) => `X_${lin.indexOf(buf)}_${i}`;
-    let srcname = (i:number) => b.srcs.map(b=> get_name(b, i));
-    
-    let ret = "";
-    if (b.tag == "source") {
-      for (let i = 0; i < mat_size; i++) ret += `${get_name(b, i)} = L[${i}];\n`;
-    }
-    if (b.tag == "scalar") ret = `${get_name()} = ${b.template(0, [])};`;
-    if (b.tag == "math") {
-      if (b.ismat)
-        for (let i = 0; i < mat_size; i++)  ret += `${get_name(b, i)} = ${b.template(i, srcname(i))};\n`
-      else ret = `${get_name()} = ${b.template(0, srcname (0))};`;
-    }
+   + `return [${ret.map(k=> `x${k}`).join(", ")}];`
 
-    if (b.tag == "move") {
-      ret = "//move\n";
-      for (let i = 0; i < mat_size; i++) {
-        let idx = Number(b.template(i, []));
-        if (idx > 0 && idx < mat_size) ret += `let ${get_name(b,i)} = ${get_name(b.srcs[0], idx)};\n`;
-        else ret += `let ${get_name(b,i)} = 0;\n`;
-      }
-    }
-    if (b.tag == "reduce") {
-      for (let j = 0; j < mat_size; j++) ret = b.template(j, [get_name(b.srcs[0], j), ret]) as string;
-      ret = `${get_name()} = ${ret};`
-    }
-    return ret;
-  }).join("\n") + `\nreturn [${range(lin[lin.length-1].ismat? 16 : 1).map((i) => `X_${lin.length - 2}_${i}`).join(", ")}];`;
-
-  console.log(code);
-
-
-  const func = new Function("L", code) as (L: Int32Array) => Int32Array;
-  return [cc.result, func];
-}
-
-
-
-
-const view_rule = (X: Int32Array, rule: Fun[]) => {
-
-
-  let [T, F] = compile(rule);
-  let res = F(X);
-
-  if (res.length == 1) put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, res[0])));
-  else put(view_matrix(T, res));
-}
-
-{
-
-  let ast = [add, const_(1), src]
-
-  show(ast)
-
-  show(chain(...ast))
-
-  let [T, F] = compile(ast)
-
-  show(F(Int32Array.from([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])))
+  return code;
 
 
 }
 
-
-
-
-let n = 0;
-let fields = [
-  [
-    n,n,n,n,
-    n,n,1,n,
-    n,1,n,n,
-    n,n,n,n,
-  ],
-  [
-    n,n,n,n,
-    n,4,1,n,
-    n,n,n,n,
-    n,n,6,n,
-  ],
-  [
-    n,n,n,n,
-    n,14,n,n,
-    1,2,n,n,
-    n,n,n,n,
-]].map(f => Int32Array.from(f))
-
-const rule = [not, any, and, get_color, src, eq, get_color, src, right, get_color, src]
-const [T, F] = compile(rule)
-
-
-const IT = 200000;
-let st = performance.now();
-for (let i = 0; i < IT; i++) {
-  F(fields[i % fields.length])
+const compile = (rule: Fun[]) : [ScalarType, (L: Int32Array) => Int32Array] => {
+  show(rule)
+  let cc = chain(...rule);
+  show("CC:")
+  show(cc.ast)
+  let code = raster(cc.ast);
+  console.log(code)
+  return [cc.result, new Function("L", code) as (L: Int32Array) => Int32Array];
 }
 
-let et = performance.now();
-let dt = et - st;
-console.log(`${Math.round(IT / dt)} k rules per second`);
 
-fields.forEach(f=>{
-  console.log(f)
-  let it = (view_matrix("block", f))
-  put(it)
-  view_rule(f, rule)
-})
+
+// const rule = [not, any, and, get_color, src, eq, get_color, src, right, get_color, src]
+const rule = [eq, src, get_color, src]
+compile(rule)
+
+
+
+
+
+// const view_rule = (X: Int32Array, rule: Fun[]) => {
+
+//   let [T, F] = compile(rule);
+//   let res = F(X);
+
+//   if (res.length == 1) put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, res[0])));
+//   else put(view_matrix(T, res));
+// }
+
+
+
+
+// let n = 0;
+// let fields = [
+//   [
+//     n,n,n,n,
+//     n,n,1,n,
+//     n,1,n,n,
+//     n,n,n,n,
+//   ],
+//   [
+//     n,n,n,n,
+//     n,4,1,n,
+//     n,n,n,n,
+//     n,n,6,n,
+//   ],
+//   [
+//     n,n,n,n,
+//     n,14,n,n,
+//     1,2,n,n,
+//     n,n,n,n,
+// ]].map(f => Int32Array.from(f))
+
+// const rule = [not, any, and, get_color, src, eq, get_color, src, right, get_color, src]
+// const [T, F] = compile(rule)
+
+
+// // const IT = 200000;
+// // let st = performance.now();
+// // for (let i = 0; i < IT; i++) {
+// //   F(fields[i % fields.length])
+// // }
+
+// // let et = performance.now();
+// // let dt = et - st;
+// // console.log(`${Math.round(IT / dt)} k rules per second`);
+
+// // fields.forEach(f=>{
+// //   console.log(f)
+// //   let it = (view_matrix("block", f))
+// //   put(it)
+// //   view_rule(f, rule)
+// // })
 
 

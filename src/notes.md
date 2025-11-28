@@ -22,3 +22,8 @@ update loop inlining: around 400k
 
 update locals instead of array index: 15000k
 
+
+failed idea:
+
+wanted to rewrite the graph to only have simple math ops `x2 = x0 + x1` etc so that everything can be simplified
+
