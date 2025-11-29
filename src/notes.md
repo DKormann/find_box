@@ -31,7 +31,7 @@ wanted to rewrite the graph to only have simple math ops `x2 = x0 + x1` etc so t
 
 
 
-update its not failed actually: 29851 k 
+update is not failed actually: 29851 k 
 i render all ast nodes down to simple interactions between scalar variables. all move and reduce get rendered to this.
 all variables that are used only once are inlined.
 cut down massively on used variables. ~ 2x faster!

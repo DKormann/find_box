@@ -203,7 +203,7 @@ const preview = (x:any) : HTMLElement=> {
   t == "object" ? Object.entries(x).slice(0,3).map(([key, value])=>key + ": " + String(value)).join(", ") :
   String(x)
 
-  inner = inner.replaceAll("\n", "")
+  if (t != "string") inner = inner.replaceAll("\n", "")
   let ret = span(
     {onclick: brackets(t)[0] != "" ?
       ()=>{
@@ -212,136 +212,7 @@ const preview = (x:any) : HTMLElement=> {
     },
     `${brackets(t)[0]}${inner}${brackets(t)[1]}`) 
   return ret
-
 }
-
-// export const show = (...x:any[])=>{
-
-//   const parse = (x: any) => {
-//     let typ : string = typeof x;
-//     let ret = span()
-
-//     let resetter = (s:string) => p(
-//       {
-//         style: {
-//           fontWeight: "lighter",
-//           fontSize: "0.8em",
-//           color: "#888",
-//           marginRight: "0.5em",
-//         },
-//         onclick: () => ret.parentElement.replaceWith(parse(x))
-//       },
-//       s
-//     )
-
-//     if (x instanceof Array) {
-//       typ = "array";
-//       ret.appendChild(span(
-//         "[" + x.slice(0,3).map(y=>String(y)).join(",") + (x.length > 3 ? "..." : "") + "]",
-//         {
-//           onclick: () => {
-//             ret.lastChild.replaceWith(div(
-//               {style: {paddingLeft: "1em",}},
-//               resetter("["),
-//               x.map(y=>p(parse(y))),
-//               resetter("]"),
-//             ))
-//             ret.scrollIntoView()
-//           }
-//         }
-//       ))
-
-//     }else if (x instanceof HTMLElement){
-//       typ = "htmlElement";
-//       ret.appendChild(span(x.tagName, ": ", x.textContent .slice(0,10),))
-//     }else if (typeof x == 'object') {
-//       ret.appendChild(span(
-//         "{" + Object.entries(x).slice(0,3).map(([key, value])=>key + ": " + String(value)).join(", ") + (Object.entries(x).length > 3 ? "..." : "") + "}", 
-//         {
-//           onclick: () => {
-//             ret.lastChild.replaceWith(div(
-//               {style: {paddingLeft: "1em",}},
-//               resetter("{"),
-//               Object.entries(x).map(([key, value])=>p (key + ": ", parse(value))),
-//               resetter("}"),
-//             ))
-//             ret.scrollIntoView()
-//           }
-//         }
-//       ))
-    
-//     }else if (x instanceof Function) {
-//       ret.appendChild(
-//         span(String(x),
-//         {
-//           onclick: () => {
-
-//             const res = div()
-
-//             let inps = []
-//             let win = (div(
-//               {style: {fontFamily: "monospace"}},
-//               p(String(x)),
-//               res,
-//             ))
-//             const inp = () => {
-//               let newinp = (input(
-//                 {
-//                   onkeydown : (e) => {
-//                     if (e.key == "Enter"){
-//                       if (e.metaKey){
-//                         console.log("meta key")
-//                         inp()
-//                       }else{
-//                         let cll = `x(${inps.map(i=>i.value).join(", ")})`;
-//                         res.innerHTML = ""
-//                         try{
-//                           res.appendChild(p(String(eval(cll))))
-//                         }catch(e){
-//                           res.appendChild(p(cll))
-//                           res.appendChild(p(String(e)))
-//                         }
-//                       }
-//                     }
-//                   }
-//                 }
-//               ))
-//               win.appendChild(p(newinp))
-//               newinp.focus()
-//               inps.push(newinp)
-//             }
-//             popup(win)
-//             inp()
-//           }
-//         }
-//       ))
-
-//     }else if (typeof x == 'string') {
-//       typ = "";
-//       ret = span(x)
-//     }else {
-//       ret = span(String(x))
-//     }
-//     return span({
-//       style:{
-//         "fontFamily": "monospace",
-//       }},
-//       span({
-//         style:{
-//           fontWeight: "lighter",
-//           fontSize: "0.8em",
-//           color: "#888",
-//           marginRight: "0.5em",
-//         }
-//       },
-//       // typ ? typ + ":" : "",
-//     ),
-//     ret
-//     )
-//   }
-
-//   body.appendChild(p(x.map(parse)))
-// }
 
 
 const full_view = (x:any): HTMLElement => {
@@ -353,9 +224,42 @@ const full_view = (x:any): HTMLElement => {
     closers[0],
     div(
       {style: {paddingLeft: "1em"}},
-      t == "array" ? x.map(preview) :
+      t == "array" ? x.map((v:any) => p(preview(v))) :
       t == "object" ? Object.entries(x).map(([key, value])=>p(key + ": ", preview(value))) :
-      t == "function" ? p(x.toString()) :
+      t == "function" ? [p(x.toString()), p(button("run", {onclick: ()=>{
+
+        let inputs = div({style: {display: "flex", flexDirection: "column", gap: "0.5em"}});
+        let res = div();
+
+        let run = ()=>{
+          let args = Array.from(inputs.childNodes).map((inp: HTMLInputElement)=>inp.value);
+          res.innerHTML = "";
+          res.append(p(x(...args.map(eval))))
+        }
+
+        
+        let mkinput = ()=>{
+          inputs.appendChild(input(
+            {
+              onkeydown: (e)=>{
+                if (e.key == "Enter"){
+                  if (e.metaKey){
+                    mkinput()
+                  }else{
+                    run()
+                  }
+                }
+              }
+            }
+          ))
+        }
+        mkinput()
+        popup(div(
+          p(x.toString()),
+          res,
+          inputs
+        ))
+      }}))]:
       []
     ),
     closers[1]);
@@ -365,16 +269,41 @@ const full_view = (x:any): HTMLElement => {
 }
 
 const termline = (content): HTMLElement => {
-  return p({style: {margin: ".2em 1em 1em 1em", fontFamily: "monospace", cursor: "pointer", whiteSpace: "pre-wrap"}}, content)
+  return p(
+
+    span(
+      {
+        style: {
+          background,
+          position: "relative",
+          color: "#aaa",
+          padding: "0",
+          margin: "0",
+
+        }
+      },
+      `out[${out.length-1}]: `,
+    ),
+    
+    
+    {style: {margin: ".5em 1em .5em 1em", paddingBottom: "0.5em", fontFamily: "monospace", cursor: "pointer", whiteSpace: "pre-wrap", fontSize: "0.92em", borderBottom: "1px solid #aaa"}}, content)
 }
 
 let logger = null;
-
-
+let terminal_input = null;
 
 let hist: any[] = [];
 
+export const clear_terminal = () => {
+  logger.innerHTML = ""
+}
+
+
+let out : any[] = [];
+
 export const print = (...x:any[])=>{
+
+  out.push(...x);
 
   hist.push(...x);
 
@@ -451,24 +380,32 @@ export const print = (...x:any[])=>{
     body.appendChild(terminal)
     logger = div()
 
-    let inp = input(
-      {style: {width: "100%", border: "none", padding: "0.5em"},
+    terminal_input = input(
+      {style: {all: "unset", width: "100%", border: "none", padding: "0.5em"},
       placeholder: ">>>",
       onkeydown: (e)=>{
         if (e.key == "Enter"){
-          try{print(eval(inp.value))}
+          if (terminal_input.value.trim() == "") return;
+          try{
+            print(terminal_input.value)
+            print(eval(terminal_input.value))
+          }
           catch(e){ print(e.message)}
-          inp.value = ""
+          terminal_input.value = ""
+          terminal_input.focus()
+          terminal_input.scrollIntoView({behavior: "instant", block: "end", inline: "nearest"})
         }
       }
     })
 
-    content.append(
-      logger,
-      inp,
-    )
+    content.append(logger, terminal_input)
   }
-  logger.appendChild(termline(x.map(preview)))
+
+  const tl = termline(x.map(preview));
+
+  logger.appendChild(tl)
+  terminal_input.scrollIntoView({ block: "end"})
 }
+
 
 

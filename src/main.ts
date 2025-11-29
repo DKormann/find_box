@@ -1,4 +1,4 @@
-import { div, h2, html, p, print, span } from "./html"
+import { clear_terminal, div, h2, html, p, print, span } from "./html"
 
 const doc = div(
   {class: "document",
@@ -11,13 +11,9 @@ const doc = div(
 )
 
 document.body.style.paddingBottom = "200px";
-
 document.body.appendChild(doc)
 
-function put(...el:HTMLElement[]){
-  el.forEach(e => doc.append(e))
-  return el
-}
+function put(...el:HTMLElement[]){el.forEach(e => doc.append(e))}
 
 const blockSize = "40px";
 const colors = ["var(--background)", "red", "green", "#0044FF", "var(--color)"]
@@ -52,22 +48,7 @@ const view_matrix = (dtype: ScalarType, data: Int32Array) => {
 
 let mat_size = 16;
 const range = (i:number) => Array.from({length: i}, (_, k) => k);
-
-type ALU = string; // template
-
-type Source = {
-  tag: "source"
-  index: number
-}
-
-type ALUOp = {
-  tag: "ALUOp"
-  alu: ALU
-  srcs: Atom[]
-}
-
-type Atom = Source | ALUOp;
-
+type Atom = { tag: "source", index: number } | { tag: "ALUOp", alu: string, srcs: Atom[] };
 
 type Tensor = {
   tag: "tensor"
@@ -75,19 +56,11 @@ type Tensor = {
   type: ScalarType
 }
 
-type Fun = {
-  tag: "alu"
-  alu: ALU
-  expect: ScalarType
-  result: ScalarType
-  arity: number
-} | {
-  tag: "reduce"
-  alu: ALU
-} | {
-  tag: "move"
-  move: (i: number) => number
-} | Tensor
+type Fun
+= { tag: "alu", alu: string, expect: ScalarType, result: ScalarType, arity: number }
+| { tag: "reduce", alu: string }
+| { tag: "move", move: (i: number) => number }
+| Tensor
 
 
 const SRC: Fun = {
@@ -114,7 +87,7 @@ const cast_scalar = (X: ScalarType, Y: ScalarType, t: Tensor): Tensor => {
       "ERR"
     ) :
     X == "block" ? (
-      Y == "number" ? "($0 == 0 ? 0 : ($0+2) / 3 | 0)" :
+      Y == "number" ? "($0 == 0 ? 0 : ($0+2) / 3) | 0" :
       Y == "color" ? "($0 == 0 ? 0 : ($0-1) % 3 + 1)" :
       "ERR"
     ) :
@@ -127,15 +100,18 @@ const cast_scalar = (X: ScalarType, Y: ScalarType, t: Tensor): Tensor => {
 const alu = (srcs: Atom[], alu: string): Atom => ({tag: "ALUOp", alu, srcs})
 const const_ = (x: number): Atom => ({tag: "ALUOp", alu: x.toString(), srcs: []})
 
-const app = (f: Fun, x: Tensor[]) : Tensor => {
+
+const scalar = (x: number, type: ScalarType): Tensor => ({tag: "tensor", type, data: [const_(x)]})
+
+let app = (f: Fun, x: Tensor[]) : Tensor => {
   if (f.tag == "tensor") return f
   let type = x[0].type;
   let data : Atom[] = [];
 
   if (f.tag == "alu"){
-    if (f.alu == "$0") return {tag: "tensor", data: x[0].data, type: x[0].type}
     x = x.map(x => cast_scalar(x.type, f.expect, x))
-    let mat = x.some(x=>x.data.length > 1)
+    if (f.alu == "$0") return x[0];
+    let mat = x.some(x=>x.data.length > 2)
     data = range(mat ? mat_size : 1).map(i=> ({tag: "ALUOp", alu: f.alu, srcs: x.map(x=>x.data[x.data.length > 1 ? i : 0])}))
     type = f.result;
   }
@@ -159,16 +135,14 @@ const alufun = (arity: number, alu : string, ...T: ScalarType[]) : Fun => {
 const redfun = (alu: string) : Fun => ({tag: "reduce", alu})
 
 
+
+
 const move_dir = (dx: number, dy: number) : Fun => ({tag: "move", move: ((i:number)=>{
   let x = i % 4 + dx;
   let y = Math.floor(i / 4) + dy;
   if (x < 0 || x > 3 || y < 0 || y > 3) return -1;
   return x + y * 4;
 })})
-
-print(move_dir(1, 0))
-print(move_dir(1, 0))
-
 
 const right = move_dir(1, 0)
 const add = alufun(2, "($0 + $1)", "number", "number", "number")
@@ -177,6 +151,7 @@ const any = redfun("($0 || $1)")
 const and = alufun(2, "($0 && $1)", "boolean")
 const eq = alufun(2, "($0 == $1)", "block", "boolean")
 const get_color = alufun(1, "$0", "color")
+const get_value = alufun(1, "$0", "number")
 
 
 const chain = (...fs: Fun[]) : Tensor => {
@@ -193,6 +168,7 @@ const chain = (...fs: Fun[]) : Tensor => {
 
 const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array) => Int32Array] => {
   let t = chain(...rule); 
+
   let lin: Atom[] = [];
   let smap = new Map<string, number>();
   let dedup = (a: Atom) : Atom => {
@@ -221,10 +197,10 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
   let raster = (atom: Atom) => {
     if (seen.has(atom)) return seen.get(atom);
     let c = atom.tag == "source" ? `L[${atom.index}]` : atom.srcs.reduce((p, c, i) => p.replaceAll(`$${i}`, raster(c)), atom.alu);
-    if (usecount.get(atom) > 2) {
+    if (usecount.get(atom) > 1) {
       let key = `x${seen.size}`;
       seen.set(atom, key);
-      code += `${key} = ${c}; // ${usecount.get(atom)}\n`;
+      code += `const ${key} = ${c};\n`;
       return key;
     }
     return c;
@@ -232,25 +208,16 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
 
   let ret = t.data.map(raster).join(",\n");
   code = code + `return [${ret}];`;
-  console.log(code)
+  print(code)
   return [t.type, t.data.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
-
 compile([add, SRC, SRC])
 
-
-
-const view_rule = (X: Int32Array, rule: Fun[]) => {
-
-  let [T, S, F] = compile(rule);
-  let res = F(X);
-
-  if (S == "scalar") put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, res[0])));
-  else put(view_matrix(T, res));
+const viewdata = (T: ScalarType, S: "scalar" | "matrix", data: Int32Array) => {
+  if (S == "scalar") return div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, data[0]));
+  else return view_matrix(T, data);
 }
-
-view_rule(Int32Array.from([0, 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]), [add, SRC, SRC])
 
 
 let n = 0;
@@ -274,12 +241,30 @@ let fields = [
     n,n,n,n,
 ]].map(f => Int32Array.from(f))
 
+
+const view_rule = (rule: Fun[]) => {
+  let [T, S, F] = compile(rule);
+  put(p(
+    {style: {display: "flex", "flex-wrap": "wrap"}},
+    fields.map(f => viewdata(T,S, F(f)))))
+}
+
+view_rule([SRC])
+
 const rule = [not, any, and, get_color, SRC, eq, get_color, SRC, right, get_color, SRC]
+const red = chain(eq, get_color, SRC, scalar(1, "color"))
+
+
+view_rule(rule)
+view_rule([SRC])
+view_rule([right, red])
+
 
 const [T, S, F] = compile(rule)
 
 
-print(compile)
+
+compile(rule)
 
 const IT = 200000;
 let st = performance.now();
@@ -287,12 +272,10 @@ for (let i = 0; i < IT; i++) {
   F(fields[i % fields.length])
 }
 
+
 let et = performance.now();
 let dt = et - st;
-console.log(`${Math.round(IT / dt)} k rules per second`);
+print(`${Math.round(IT / dt)} k rules per second`);
 
-fields.forEach(f=>{
-  let it = (view_matrix("block", f))
-  put(it)
-  view_rule(f, rule)
-})
+
+print((x)=>x + 22)
