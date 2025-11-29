@@ -13,7 +13,10 @@ const doc = div(
 document.body.style.paddingBottom = "200px";
 document.body.appendChild(doc)
 
-function put(...el:HTMLElement[]){el.forEach(e => doc.append(e))}
+function put(...el:HTMLElement[]){
+  el.forEach(e => doc.append(e))
+  return el[0]
+}
 
 const blockSize = "40px";
 const colors = ["var(--background)", "red", "green", "#0044FF", "var(--color)"]
@@ -145,6 +148,9 @@ const move_dir = (dx: number, dy: number) : Fun => ({tag: "move", move: ((i:numb
 })})
 
 const right = move_dir(1, 0)
+const left = move_dir(-1, 0)
+const up = move_dir(0, -1)
+const down = move_dir(0, 1)
 const add = alufun(2, "($0 + $1)", "number", "number", "number")
 const not = alufun(1, "(!$0)", "boolean")
 const any = redfun("($0 || $1)")
@@ -244,14 +250,20 @@ let fields = [
 
 const view_rule = (rule: Fun[]) => {
   let [T, S, F] = compile(rule);
-  put(p(
+  return put(p(
     {style: {display: "flex", "flex-wrap": "wrap"}},
     fields.map(f => viewdata(T,S, F(f)))))
 }
 
 
 const rule = [not, any, and, get_color, SRC, eq, get_color, SRC, right, get_color, SRC]
-const red = chain(eq, get_color, SRC, scalar(1, "color"))
+// const red = chain(eq, get_color, SRC, scalar(1, "color"))
+
+const is_color = (x: number): Fun => ({tag: "alu", alu: `($0 == ${x})`, expect: "color", result: "boolean", arity: 1})
+
+const isred = is_color(1)
+const isgreen = is_color(2)
+const isblue = is_color(3)
 
 
 // view_rule([SRC])
@@ -279,11 +291,12 @@ const bench = ()=>{
 
 
 
+view_rule([SRC])
+
+
+
 
 { // create rule search
-
-
-
 
   let bar = div(
     {
@@ -301,19 +314,34 @@ const bench = ()=>{
 
 
 
-  let Lang = {right, src: SRC,eq,get_color,any,and,not,get_value,add }
+  let Lang = {
+    right, left, up, down,
+    src: SRC,
+    eq,
+    get_color,
+    isred,
+    isgreen,
+    isblue,
+    any,
+    and,
+    not,
+    get_value,
+    add,
+  }
 
-  let cmd : (string | null)[] = [ "eq", "eq", "src"];
+  let cmd : (string | null)[] = [ ]
 
   let cmd_idx = 0;
 
   let current_word = "";
 
   const options = Object.entries(Lang).map(([key])=>key)
-  let suggestions : string[] = [];
+  let suggestions : string[] = options;
 
   let stack : number[] = []
   let todo = true;
+
+  let outp : HTMLElement = div()
 
 
   let view_bar = () =>{
@@ -337,23 +365,6 @@ const bench = ()=>{
     cur.style.color = "var(--background)";
 
 
-    let usr = div(
-      {style: {position: "relative", margin: "0", padding: "0", marginTop: "0.2em",}},
-      cur,
-      div(
-        {style: {
-          position: "absolute",
-          top: "100%",
-          left: "0",
-          display: "flex",
-          flexDirection: "column",
-          zIndex: "1000",
-          border: "1px solid #888",
-          background: "var(--background)",
-        }},
-        suggestions.map(k => span(k, {style: {padding: "0.2em", cursor: "pointer"}})),
-      ),
-    );
 
     bar.innerHTML = "";
     bar.append(
@@ -378,8 +389,29 @@ const bench = ()=>{
       print(stack)
     })
 
-    bar.append(usr)
     todo = (stack.reduce((a,b)=>a+b, 0) > 0)
+
+    let usr = div(
+      {style: {position: "relative", margin: "0", padding: "0", marginTop: "0.2em",}},
+      cur,
+      todo ? div(
+        {style: {
+          position: "absolute",
+          top: "100%",
+          left: "0",
+          display: "flex",
+          flexDirection: "column",
+          zIndex: "1000",
+          border: "1px solid #888",
+          background: "var(--background)",
+        }},
+        suggestions.map(k => span(k, {style: {padding: "0.2em", cursor: "pointer"}})),
+      ) : null,
+    );
+
+    bar.append(usr)
+
+
     stack[stack.length - 1]--
 
 
@@ -388,6 +420,10 @@ const bench = ()=>{
       bar.append(blob(")"))
     }
     bar.focus()
+
+    outp.remove()
+
+    if(!todo) outp = (view_rule([...cmd.map(c=>Lang[c])]))
   }
 
   view_bar()
@@ -404,16 +440,11 @@ const bench = ()=>{
       cmd_idx++;
     }
 
-    if (e.key == "ArrowLeft"){
-      cmd_idx--;
-    }
+    if (e.key == "ArrowLeft") cmd_idx--;
 
     if (e.key == "Backspace"){
-      if (current_word.length > 0){
-        current_word = ""
-      }else{
-        cmd.pop();
-      }
+      if (current_word.length > 0) current_word = ""
+      else cmd.pop();
     }
 
     if (e.key == " "){
@@ -443,12 +474,9 @@ const bench = ()=>{
 
   })
 
-
-
-
-
-
   put(bar)
+
+  bar.focus()
 
 
 }
