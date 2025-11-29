@@ -134,6 +134,7 @@ const app = (f: Fun, x: Tensor[]) : Tensor => {
   let data : Atom[] = [];
 
   if (f.tag == "alu"){
+    // if (f.alu == "$0") return x[0];
     x = x.map(x => cast_scalar(x.type, f.expect, x))
     let mat = x.some(x=>x.data.length > 1)
     data = range(mat ? mat_size : 1).map(i=> ({tag: "ALUOp", alu: f.alu, srcs: x.map(x=>x.data[x.data.length > 1 ? i : 0])}))
@@ -189,154 +190,49 @@ const chain = (...fs: Fun[]) : Tensor => {
   return go();
 }
 
-
-
-
-
-// const raster = (x: Ast) => {
-
-//   let ctx = new Map<Ast, number>();
-//   let lin : {ast:Ast, ismat: boolean} [] = []
-
-//   const walk = (ast: Ast) : boolean => {
-//     if (ctx.has(ast)) return lin[ctx.get(ast)].ismat;
-//     let matin = ast.srcs.map(walk).some(x=>x);
-//     let ismat = (ast.tag == "reduce" || ast.tag == "scalar") ? false : ast.tag == "source" ? true : matin;
-//     ctx.set(ast, lin.length);
-//     lin.push({ast, ismat});
-//     return ismat;
-//   }
-//   let ismat = walk(x);
-
-//   type key = number;
-//   type CacheEntry = {
-//     template: (srcs: string[]) => string
-//     srcs: key[]
-//     uses: number
-//   }
-//   const cache = new Map<key, CacheEntry> ();
-//   const go = (ast: Ast, i: number) : key => {
-//     if (! lin[ctx.get(ast)].ismat) i = 0;
-//     let key = ctx.get(ast) * 100 + i;
-//     if (cache.has(key)) {
-//       cache.get(key).uses ++;
-//       return key;
-//     }
-
-//     let template: (i: number, src: string[]) => string | number = ast.template;
-//     let srcs: key[] = [];
-//     if (ast.tag == "math") srcs = ast.srcs.map(s=>go(s, i));
-//     if (ast.tag == "reduce") {
-//       srcs = range(mat_size).map(i => go(ast.srcs[0], i));
-//       template = (_, src) => src.reduce((a,b,i) => ast.template(i, [a,b]) as string, "");
-//     }
-//     if (ast.tag == "move") {
-//       let j  = ast.template(i, []) as number;
-//       if (j > 0 && j < mat_size) return go(ast.srcs[0], j);
-//       template = () => "0";
-//     }
-//     if (ast.tag == "source") template = () => `L[${i}]`;
-//     let res : CacheEntry = {template: (s) => template(0,s) as string , srcs, uses: 1};
-//     cache.set(key, res);
-
-//     srcs.forEach(k=>{
-//       if (res.template(srcs.map(k=> `$${k}$`)).split(`$${k}$`).length - 1 > 1) cache.get(k).uses ++;
-//     })
-//     return key;
-//   }
-
-//   let ret = ismat ? range(mat_size).map(i=>go(x, i)) : [go(x, 0)]
-//   let code = "";
-//   let vars = new Set<number>();
-
-//   const render = (key: number) =>{
-
-//     if (vars.has(key)) return `x${key}`;
-
-//     let entry = cache.get(key);
-//     let c = entry.template(entry.srcs.map(k=> render(k)));
-
-//     if (entry.uses > 1) {
-//       if (!vars.has(key)) code += `x${key} = ${c};\n`;
-//       vars.add(key);
-//       return `x${key}`;
-//     }
-//     return `(${c})`;
-//   }
-
-//   Array.from(cache.entries()).sort((a,b) => a[0] - b[0]).forEach(([key, value]) => render(key));
-//   code += `return [${ret.map(k=> render(k)).join(",\n")}];`
-//   return code;
-// }
-
-
-
-
 const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array) => Int32Array] => {
-
-  let t = chain(...rule);
-
-
-
+  let t = chain(...rule); 
   let lin: Atom[] = [];
   let smap = new Map<string, number>();
   let dedup = (a: Atom) : Atom => {
     let key = "";
-    if (a.tag == "source") {
-      key = `s${a.index}`;
-    }else{
+    if (a.tag == "source") key = `s${a.index}`;
+    else{
       a.srcs = a.srcs.map(dedup)
       key = `${a.alu}(${a.srcs.map(x=>lin.indexOf(x)).join(",")})`
     }
-
     if (smap.has(key)) return lin[smap.get(key)];
     smap.set(key, lin.length);
     lin.push(a);
-
     return a;
-
   }
 
   t.data.forEach(dedup);
-
-
   let usecount = new Map<Atom, number>();
-
   let count = (atom: Atom) => {
     if (atom.tag == "ALUOp") atom.srcs.forEach(count);
     usecount.set(atom, (usecount.get(atom) || 0) + 1);
   }
 
   t.data.forEach(count);
-
-
   let code = "";
   let seen = new Map<Atom, string>();
-
   let raster = (atom: Atom) => {
-
     if (seen.has(atom)) return seen.get(atom);
-
     let c = atom.tag == "source" ? `L[${atom.index}]` : atom.srcs.reduce((p, c, i) => p.replaceAll(`$${i}`, raster(c)), atom.alu);
-    if (usecount.get(atom) > 1) {
+    if (usecount.get(atom) > 2) {
       let key = `x${seen.size}`;
       seen.set(atom, key);
-      code += `${key} = ${c};\n`;
+      code += `${key} = ${c}; // ${usecount.get(atom)}\n`;
       return key;
     }
     return c;
   }
 
   let ret = t.data.map(raster).join(",\n");
-
-  
   code = code + `return [${ret}];`;
-
   console.log(code)
-
-
-  return [t.type, t.data.length == 1 ? "scalar" : "matrix", (L: Int32Array) => L]
-
+  return [t.type, t.data.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
 
@@ -344,66 +240,61 @@ compile([add, SRC, SRC])
 
 
 
-// const compile = (rule: Fun[]) : [ScalarType, (L: Int32Array) => Int32Array] => {
-//   let cc = chain(...rule);
-//   let code = raster(cc.ast);
-//   console.log(code)
-//   return [cc.result, new Function("L", code) as (L: Int32Array) => Int32Array];
-// }
+const view_rule = (X: Int32Array, rule: Fun[]) => {
 
-// const view_rule = (X: Int32Array, rule: Fun[]) => {
+  let [T, S, F] = compile(rule);
+  let res = F(X);
 
-//   let [T, F] = compile(rule);
-//   let res = F(X);
+  if (S == "scalar") put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, res[0])));
+  else put(view_matrix(T, res));
+}
 
-//   if (res.length == 1) put(div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, res[0])));
-//   else put(view_matrix(T, res));
-// }
+
+view_rule(Int32Array.from([0, 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]), [add, SRC, SRC])
 
 
 
+let n = 0;
+let fields = [
+  [
+    n,n,n,n,
+    n,n,1,n,
+    n,1,n,n,
+    n,n,n,n,
+  ],
+  [
+    n,n,n,n,
+    n,4,1,n,
+    n,n,n,n,
+    n,n,6,n,
+  ],
+  [
+    n,n,n,n,
+    n,14,n,n,
+    1,2,n,n,
+    n,n,n,n,
+]].map(f => Int32Array.from(f))
 
-// let n = 0;
-// let fields = [
-//   [
-//     n,n,n,n,
-//     n,n,1,n,
-//     n,1,n,n,
-//     n,n,n,n,
-//   ],
-//   [
-//     n,n,n,n,
-//     n,4,1,n,
-//     n,n,n,n,
-//     n,n,6,n,
-//   ],
-//   [
-//     n,n,n,n,
-//     n,14,n,n,
-//     1,2,n,n,
-//     n,n,n,n,
-// ]].map(f => Int32Array.from(f))
+const rule = [not, any, and, get_color, SRC, eq, get_color, SRC, right, get_color, SRC]
 
-// const rule = [not, any, and, get_color, src, eq, get_color, src, right, get_color, src]
-
-// const [T, F] = compile(rule)
+const [T, S, F] = compile(rule)
 
 
-// const IT = 200000;
-// let st = performance.now();
-// for (let i = 0; i < IT; i++) {
-//   F(fields[i % fields.length])
-// }
+const IT = 200000;
+let st = performance.now();
+for (let i = 0; i < IT; i++) {
+  F(fields[i % fields.length])
+}
 
-// let et = performance.now();
-// let dt = et - st;
-// console.log(`${Math.round(IT / dt)} k rules per second`);
+let et = performance.now();
+let dt = et - st;
+console.log(`${Math.round(IT / dt)} k rules per second`);
 
-// fields.forEach(f=>{
-//   let it = (view_matrix("block", f))
-//   put(it)
-//   view_rule(f, rule)
-// })
+fields.forEach(f=>{
+  let it = (view_matrix("block", f))
+  put(it)
+  view_rule(f, rule)
+})
 
 
 
