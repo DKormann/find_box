@@ -1,4 +1,4 @@
-import { Writable } from "./store"
+import { Stored, Writable } from "./store"
 
 export type htmlKey = 'innerText'|'onclick' | 'oninput' | 'onkeydown' |'children'|'class'|'id'|'contentEditable'|'eventListeners'|'color'|'background' | 'style' | 'placeholder'
 
@@ -172,132 +172,214 @@ export const popup = (...cs:HTMLArg[])=>{
 
 const body = document.body;
 
+
+const typ = (x:any): string => {
+  if (x instanceof Array) return "array"
+  else if (x instanceof Function) return "function"
+  else if (x instanceof HTMLElement) return "htmlElement"
+  else if (x instanceof Object) return "object"
+  else return typeof x
+}
+
+const brackets = (typ: string): [string, string] => {
+  if (typ == "array") return ["[", "]"]
+  else if (typ == "object") return ["{", "}"]
+  else if (typ == "function") return ["Function(", ")"]
+  else if (typ == "htmlElement") return ["<", "/>"]
+  else return ["", ""]
+}
+
+const preview = (x:any) : string=> {
+
+  let size = 40;
+  let t = typ(x);
+
+  let inner = t == "array" ? x.slice(0,10).toString() :
+  t == "function" ? x.toString() :
+  t == "htmlElement" ? (x.tagName + x.textContent) :
+  t == "object" ? Object.entries(x).slice(0,3).map(([key, value])=>key + ": " + String(value)).join(", ") :
+  String(x)
+
+  inner = inner.replaceAll("\n", "")
+  // inner = inner.length > size ? inner.slice(0,size) + "..." : inner
+  return `${brackets(t)[0]}${inner}${brackets(t)[1]}` 
+
+}
+
+// export const show = (...x:any[])=>{
+
+//   const parse = (x: any) => {
+//     let typ : string = typeof x;
+//     let ret = span()
+
+//     let resetter = (s:string) => p(
+//       {
+//         style: {
+//           fontWeight: "lighter",
+//           fontSize: "0.8em",
+//           color: "#888",
+//           marginRight: "0.5em",
+//         },
+//         onclick: () => ret.parentElement.replaceWith(parse(x))
+//       },
+//       s
+//     )
+
+//     if (x instanceof Array) {
+//       typ = "array";
+//       ret.appendChild(span(
+//         "[" + x.slice(0,3).map(y=>String(y)).join(",") + (x.length > 3 ? "..." : "") + "]",
+//         {
+//           onclick: () => {
+//             ret.lastChild.replaceWith(div(
+//               {style: {paddingLeft: "1em",}},
+//               resetter("["),
+//               x.map(y=>p(parse(y))),
+//               resetter("]"),
+//             ))
+//             ret.scrollIntoView()
+//           }
+//         }
+//       ))
+
+//     }else if (x instanceof HTMLElement){
+//       typ = "htmlElement";
+//       ret.appendChild(span(x.tagName, ": ", x.textContent .slice(0,10),))
+//     }else if (typeof x == 'object') {
+//       ret.appendChild(span(
+//         "{" + Object.entries(x).slice(0,3).map(([key, value])=>key + ": " + String(value)).join(", ") + (Object.entries(x).length > 3 ? "..." : "") + "}", 
+//         {
+//           onclick: () => {
+//             ret.lastChild.replaceWith(div(
+//               {style: {paddingLeft: "1em",}},
+//               resetter("{"),
+//               Object.entries(x).map(([key, value])=>p (key + ": ", parse(value))),
+//               resetter("}"),
+//             ))
+//             ret.scrollIntoView()
+//           }
+//         }
+//       ))
+    
+//     }else if (x instanceof Function) {
+//       ret.appendChild(
+//         span(String(x),
+//         {
+//           onclick: () => {
+
+//             const res = div()
+
+//             let inps = []
+//             let win = (div(
+//               {style: {fontFamily: "monospace"}},
+//               p(String(x)),
+//               res,
+//             ))
+//             const inp = () => {
+//               let newinp = (input(
+//                 {
+//                   onkeydown : (e) => {
+//                     if (e.key == "Enter"){
+//                       if (e.metaKey){
+//                         console.log("meta key")
+//                         inp()
+//                       }else{
+//                         let cll = `x(${inps.map(i=>i.value).join(", ")})`;
+//                         res.innerHTML = ""
+//                         try{
+//                           res.appendChild(p(String(eval(cll))))
+//                         }catch(e){
+//                           res.appendChild(p(cll))
+//                           res.appendChild(p(String(e)))
+//                         }
+//                       }
+//                     }
+//                   }
+//                 }
+//               ))
+//               win.appendChild(p(newinp))
+//               newinp.focus()
+//               inps.push(newinp)
+//             }
+//             popup(win)
+//             inp()
+//           }
+//         }
+//       ))
+
+//     }else if (typeof x == 'string') {
+//       typ = "";
+//       ret = span(x)
+//     }else {
+//       ret = span(String(x))
+//     }
+//     return span({
+//       style:{
+//         "fontFamily": "monospace",
+//       }},
+//       span({
+//         style:{
+//           fontWeight: "lighter",
+//           fontSize: "0.8em",
+//           color: "#888",
+//           marginRight: "0.5em",
+//         }
+//       },
+//       // typ ? typ + ":" : "",
+//     ),
+//     ret
+//     )
+//   }
+
+//   body.appendChild(p(x.map(parse)))
+// }
+
+
+const full_view = (x:any): HTMLElement => {
+  return span(preview(x))
+}
+
+const termline = (content): HTMLElement => {
+  return p({style: {margin: ".2em 1em 1em 1em", fontFamily: "monospace", cursor: "pointer", whiteSpace: "pre-wrap"}}, content)
+}
+
+let logger = null;
+
+
+
 export const show = (...x:any[])=>{
 
-  const parse = (x: any) => {
-    let typ : string = typeof x;
-    let ret = span()
+  if (logger == null){
 
-    let resetter = (s:string) => p(
+    logger = div(
       {
         style: {
-          fontWeight: "lighter",
-          fontSize: "0.8em",
-          color: "#888",
-          marginRight: "0.5em",
-        },
-        onclick: () => ret.parentElement.replaceWith(parse(x))
-      },
-      s
+          position: "fixed",
+          top: "0",
+          right: "0",
+          width: "50%",
+          height: "100%",
+          border: "1px solid #888",
+          borderRadius: "1em",
+          background: "var(--background)",
+        }
+      }
     )
+    let showterm = new Stored("showterm", true)
+    showterm.subscribe((value)=>{
+      logger.style.display = value ? "block" : "none"
+    })
 
-    if (x instanceof Array) {
-      typ = "array";
-      ret.appendChild(span(
-        "[" + x.slice(0,3).map(y=>String(y)).join(",") + (x.length > 3 ? "..." : "") + "]",
-        {
-          onclick: () => {
-            ret.lastChild.replaceWith(div(
-              {style: {paddingLeft: "1em",}},
-              resetter("["),
-              x.map(y=>p(parse(y))),
-              resetter("]"),
-            ))
-            ret.scrollIntoView()
-          }
-        }
-      ))
+    document.addEventListener("keydown", (e)=>{
+      if (e.key == "b" && e.metaKey){
+        showterm.update(v=>!v);
+        e.preventDefault()
+      }
+    })
 
-    }else if (x instanceof HTMLElement){
-      typ = "htmlElement";
-      ret.appendChild(span(x.tagName, ": ", x.textContent .slice(0,10),))
-    }else if (typeof x == 'object') {
-      ret.appendChild(span(
-        "{" + Object.entries(x).slice(0,3).map(([key, value])=>key + ": " + String(value)).join(", ") + (Object.entries(x).length > 3 ? "..." : "") + "}", 
-        {
-          onclick: () => {
-            ret.lastChild.replaceWith(div(
-              {style: {paddingLeft: "1em",}},
-              resetter("{"),
-              Object.entries(x).map(([key, value])=>p (key + ": ", parse(value))),
-              resetter("}"),
-            ))
-            ret.scrollIntoView()
-          }
-        }
-      ))
-    
-    }else if (x instanceof Function) {
-      ret.appendChild(
-        span(String(x),
-        {
-          onclick: () => {
-
-            const res = div()
-
-            let inps = []
-            let win = (div(
-              {style: {fontFamily: "monospace"}},
-              p(String(x)),
-              res,
-            ))
-            const inp = () => {
-              let newinp = (input(
-                {
-                  onkeydown : (e) => {
-                    if (e.key == "Enter"){
-                      if (e.metaKey){
-                        console.log("meta key")
-                        inp()
-                      }else{
-                        let cll = `x(${inps.map(i=>i.value).join(", ")})`;
-                        res.innerHTML = ""
-                        try{
-                          res.appendChild(p(String(eval(cll))))
-                        }catch(e){
-                          res.appendChild(p(cll))
-                          res.appendChild(p(String(e)))
-                        }
-                      }
-                    }
-                  }
-                }
-              ))
-              win.appendChild(p(newinp))
-              newinp.focus()
-              inps.push(newinp)
-            }
-            popup(win)
-            inp()
-          }
-        }
-      ))
-
-    }else if (typeof x == 'string') {
-      typ = "";
-      ret = span(x)
-    }else {
-      ret = span(String(x))
-    }
-    return span({
-      style:{
-        "fontFamily": "monospace",
-      }},
-      span({
-        style:{
-          fontWeight: "lighter",
-          fontSize: "0.8em",
-          color: "#888",
-          marginRight: "0.5em",
-        }
-      },
-      // typ ? typ + ":" : "",
-    ),
-    ret
-    )
+    body.appendChild(logger)
   }
-
-  body.appendChild(p(x.map(parse)))
+  logger.appendChild(termline(x.map(full_view)))
 }
 
 

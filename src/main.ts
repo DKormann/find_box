@@ -1,4 +1,3 @@
-import { hash } from "crypto";
 import { div, h2, html, p, show, span } from "./html"
 
 const doc = div(
@@ -134,7 +133,7 @@ const app = (f: Fun, x: Tensor[]) : Tensor => {
   let data : Atom[] = [];
 
   if (f.tag == "alu"){
-    // if (f.alu == "$0") return x[0];
+    if (f.alu == "$0") return {tag: "tensor", data: x[0].data, type: x[0].type}
     x = x.map(x => cast_scalar(x.type, f.expect, x))
     let mat = x.some(x=>x.data.length > 1)
     data = range(mat ? mat_size : 1).map(i=> ({tag: "ALUOp", alu: f.alu, srcs: x.map(x=>x.data[x.data.length > 1 ? i : 0])}))
@@ -158,15 +157,17 @@ const alufun = (arity: number, alu : string, ...T: ScalarType[]) : Fun => {
 }
 
 const redfun = (alu: string) : Fun => ({tag: "reduce", alu})
-const move = (move: (i: number) => number) : Fun => ({tag: "move", move})
 
 
-const move_dir = (dx: number, dy: number) => move(i=>{
+const move_dir = (dx: number, dy: number) : Fun => ({tag: "move", move: ((i:number)=>{
   let x = i % 4 + dx;
   let y = Math.floor(i / 4) + dy;
   if (x < 0 || x > 3 || y < 0 || y > 3) return -1;
   return x + y * 4;
-})
+})})
+
+show(move_dir(1, 0))
+show(move_dir(1, 0))
 
 
 const right = move_dir(1, 0)
@@ -236,6 +237,12 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
 }
 
 
+show(compile.toString())
+
+show("  XXX  ")
+show("XXX")
+
+
 compile([add, SRC, SRC])
 
 
@@ -249,9 +256,7 @@ const view_rule = (X: Int32Array, rule: Fun[]) => {
   else put(view_matrix(T, res));
 }
 
-
 view_rule(Int32Array.from([0, 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]), [add, SRC, SRC])
-
 
 
 let n = 0;
