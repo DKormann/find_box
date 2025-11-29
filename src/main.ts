@@ -135,7 +135,7 @@ const alufun = (arity: number, alu : string, ...T: ScalarType[]) : Fun => {
 const redfun = (alu: string) : Fun => ({tag: "reduce", alu})
 
 
-
+const arity = (f: Fun) => f.tag == "alu" ? f.arity : f.tag == "tensor" ? 0 : 1;
 
 const move_dir = (dx: number, dy: number) : Fun => ({tag: "move", move: ((i:number)=>{
   let x = i % 4 + dx;
@@ -208,7 +208,7 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
 
   let ret = t.data.map(raster).join(",\n");
   code = code + `return [${ret}];`;
-  print(code)
+  // print(code)
   return [t.type, t.data.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
@@ -249,33 +249,206 @@ const view_rule = (rule: Fun[]) => {
     fields.map(f => viewdata(T,S, F(f)))))
 }
 
-view_rule([SRC])
 
 const rule = [not, any, and, get_color, SRC, eq, get_color, SRC, right, get_color, SRC]
 const red = chain(eq, get_color, SRC, scalar(1, "color"))
 
 
-view_rule(rule)
-view_rule([SRC])
-view_rule([right, red])
+// view_rule([SRC])
+// view_rule(rule)
+// view_rule([right, red])
 
 
 const [T, S, F] = compile(rule)
 
 
 
-compile(rule)
+const bench = ()=>{
 
-const IT = 200000;
-let st = performance.now();
-for (let i = 0; i < IT; i++) {
-  F(fields[i % fields.length])
+  const IT = 200000;
+  let st = performance.now();
+  for (let i = 0; i < IT; i++) {
+    F(fields[i % fields.length])
+  }
+  
+  
+  let et = performance.now();
+  let dt = et - st;
+  print(`${Math.round(IT / dt)} k rules per second`);
 }
 
 
-let et = performance.now();
-let dt = et - st;
-print(`${Math.round(IT / dt)} k rules per second`);
 
 
-print((x)=>x + 22)
+{ // create rule search
+
+
+
+
+  let bar = div(
+    {
+      tabIndex: 0,
+      style: {
+        display: "flex",
+        flexDirection: "row",
+
+        border: ".2em solid #888",
+        padding: ".2em",
+      }
+    })
+
+  bar.focus()
+
+
+
+  let Lang = {right, src: SRC,eq,get_color,any,and,not,get_value,add }
+
+  let cmd : (string | null)[] = [ "eq", "eq", "src"];
+
+  let cmd_idx = 0;
+
+  let current_word = "";
+
+  const options = Object.entries(Lang).map(([key])=>key)
+  let suggestions : string[] = [];
+
+  let stack : number[] = []
+  let todo = true;
+
+
+  let view_bar = () =>{
+
+
+    const blob = (word: string, args?: Record<string, any>) => {
+      return span(word,
+        args,
+        { 
+          style: {
+            margin: "0 0.1em",
+            padding: "0.2em",
+            borderRadius: "0.2em",
+          }
+        }
+      )
+    }
+
+    let cur = blob(current_word);
+    cur.style.background = "var(--color)";
+    cur.style.color = "var(--background)";
+
+
+    let usr = div(
+      {style: {position: "relative", margin: "0", padding: "0", marginTop: "0.2em",}},
+      cur,
+      div(
+        {style: {
+          position: "absolute",
+          top: "100%",
+          left: "0",
+          display: "flex",
+          flexDirection: "column",
+          zIndex: "1000",
+          border: "1px solid #888",
+          background: "var(--background)",
+        }},
+        suggestions.map(k => span(k, {style: {padding: "0.2em", cursor: "pointer"}})),
+      ),
+    );
+
+    bar.innerHTML = "";
+    bar.append(
+      blob("("),
+    )
+
+    stack  = [1]
+
+    cmd.forEach(c=>{
+      print(c)
+      bar.append(blob(c))
+      stack[stack.length - 1]--
+      if (arity(Lang[c]) > 0){
+        stack.push(arity(Lang[c]))
+        bar.append(blob("("))
+      }else{
+        while (stack[stack.length - 1] == 0){
+          stack.pop()
+          bar.append(blob(")"))
+        }
+      }
+      print(stack)
+    })
+
+    bar.append(usr)
+    todo = (stack.reduce((a,b)=>a+b, 0) > 0)
+    stack[stack.length - 1]--
+
+
+    while (stack. length > 0){
+      range(stack.pop()).forEach(()=>bar.append(blob("...")))
+      bar.append(blob(")"))
+    }
+    bar.focus()
+  }
+
+  view_bar()
+
+  const add_cmd = (c:string) => {
+    cmd.push(c);
+    current_word = "";
+    suggestions = options;
+  }
+
+  bar.addEventListener("keydown", (e)=>{
+
+    if (e.key == "ArrowRight"){
+      cmd_idx++;
+    }
+
+    if (e.key == "ArrowLeft"){
+      cmd_idx--;
+    }
+
+    if (e.key == "Backspace"){
+      if (current_word.length > 0){
+        current_word = ""
+      }else{
+        cmd.pop();
+      }
+    }
+
+    if (e.key == " "){
+      add_cmd(suggestions[0])
+    } else if (e.key.length == 1 && todo){
+      current_word += e.key;
+    }
+
+
+    suggestions = options.filter(k => k.startsWith(current_word))
+
+    if (suggestions.length == 1){
+      add_cmd(suggestions[0])
+    }
+    if (suggestions.length == 0){
+      current_word = current_word.slice(0, -1);
+      suggestions = options;
+    }
+    
+    while (true){
+      let nl = suggestions.map(k=>k.slice(current_word.length, current_word.length + 1))
+      if (nl.some(k => k != nl[0])) break;
+      current_word += nl[0];
+    }
+
+    view_bar()
+
+  })
+
+
+
+
+
+
+  put(bar)
+
+
+}
