@@ -360,7 +360,7 @@ export const print = (...x:any[])=>{
     }})
 
     terminal.append(sidebar,content)    
-    let showterm = new Stored("showterm", true)
+    let showterm = new Stored("showterm", false)
     showterm.subscribe((value)=> terminal.style.display = value ? "block" : "none")
 
     document.addEventListener("keydown", (e)=>{
