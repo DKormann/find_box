@@ -1,4 +1,4 @@
-import { div, h2, html, p, show, span } from "./html"
+import { div, h2, html, p, print, span } from "./html"
 
 const doc = div(
   {class: "document",
@@ -166,8 +166,8 @@ const move_dir = (dx: number, dy: number) : Fun => ({tag: "move", move: ((i:numb
   return x + y * 4;
 })})
 
-show(move_dir(1, 0))
-show(move_dir(1, 0))
+print(move_dir(1, 0))
+print(move_dir(1, 0))
 
 
 const right = move_dir(1, 0)
@@ -237,12 +237,6 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
 }
 
 
-show(compile.toString())
-
-show("  XXX  ")
-show("XXX")
-
-
 compile([add, SRC, SRC])
 
 
@@ -285,6 +279,8 @@ const rule = [not, any, and, get_color, SRC, eq, get_color, SRC, right, get_colo
 const [T, S, F] = compile(rule)
 
 
+print(compile)
+
 const IT = 200000;
 let st = performance.now();
 for (let i = 0; i < IT; i++) {
@@ -300,17 +296,3 @@ fields.forEach(f=>{
   put(it)
   view_rule(f, rule)
 })
-
-
-
-// fields.forEach(f=>{
-//   let it = (view_matrix("block", f))
-//   put(it)
-//   view_rule(f, [
-//     eq, src, get_color, src
-//   ])
-// })
-
-
-
-

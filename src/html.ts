@@ -6,7 +6,6 @@ export const htmlElement = (tag:string, text:string, cls:string = "", args?:Part
 
   const _element = document.createElement(tag)
   _element.innerText = text
-  // if (cls) _element.classList.add(...cls.split('.').filter(x=>x))
   if (args) Object.entries(args).forEach(([key, value])=>{
     if (key === 'parent'){
       (value as HTMLElement).appendChild(_element)
@@ -33,6 +32,8 @@ export const htmlElement = (tag:string, text:string, cls:string = "", args?:Part
   })
   return _element
 }
+
+
 
 
 type HTMLArg = string | number | HTMLElement | Partial<Record<htmlKey, any>> | Writable<any> | Promise<HTMLArg> | HTMLArg[]
@@ -94,6 +95,8 @@ export const tr:HTMLGenerator<HTMLTableRowElement> = newHtmlGenerator("tr")
 export const td:HTMLGenerator<HTMLTableCellElement> = newHtmlGenerator("td")
 export const th:HTMLGenerator<HTMLTableCellElement> = newHtmlGenerator("th")
 
+const background = "var(--background)";
+const color = "var(--color)";
 
 export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
 
@@ -189,7 +192,7 @@ const brackets = (typ: string): [string, string] => {
   else return ["", ""]
 }
 
-const preview = (x:any) : string=> {
+const preview = (x:any) : HTMLElement=> {
 
   let size = 40;
   let t = typ(x);
@@ -201,8 +204,14 @@ const preview = (x:any) : string=> {
   String(x)
 
   inner = inner.replaceAll("\n", "")
-  // inner = inner.length > size ? inner.slice(0,size) + "..." : inner
-  return `${brackets(t)[0]}${inner}${brackets(t)[1]}` 
+  let ret = span(
+    {onclick: brackets(t)[0] != "" ?
+      ()=>{
+        ret.replaceWith(full_view(x))
+      } : undefined
+    },
+    `${brackets(t)[0]}${inner}${brackets(t)[1]}`) 
+  return ret
 
 }
 
@@ -336,7 +345,23 @@ const preview = (x:any) : string=> {
 
 
 const full_view = (x:any): HTMLElement => {
-  return span(preview(x))
+  let t = typ(x);
+  let bracks = brackets(t);
+  let ret = div();
+  let closers = bracks.map(b => p(b,{onclick: ()=>{ret.replaceWith(preview(x))}}));
+  ret.replaceChildren(
+    closers[0],
+    div(
+      {style: {paddingLeft: "1em"}},
+      t == "array" ? x.map(preview) :
+      t == "object" ? Object.entries(x).map(([key, value])=>p(key + ": ", preview(value))) :
+      t == "function" ? p(x.toString()) :
+      []
+    ),
+    closers[1]);
+  return ret;
+
+
 }
 
 const termline = (content): HTMLElement => {
@@ -347,39 +372,103 @@ let logger = null;
 
 
 
-export const show = (...x:any[])=>{
+let hist: any[] = [];
+
+export const print = (...x:any[])=>{
+
+  hist.push(...x);
+
 
   if (logger == null){
 
-    logger = div(
-      {
-        style: {
-          position: "fixed",
-          top: "0",
-          right: "0",
-          width: "50%",
-          height: "100%",
-          border: "1px solid #888",
-          borderRadius: "1em",
-          background: "var(--background)",
-        }
-      }
-    )
-    let showterm = new Stored("showterm", true)
-    showterm.subscribe((value)=>{
-      logger.style.display = value ? "block" : "none"
+    let terminal = div({style: {
+      position: "fixed",
+      top: "0",
+      right: "0",
+      width: "50%",
+      height: "100%",
+      border: "1px solid #888",
+      borderRadius: "1em",
+      background,
+      overflowY: "scroll",
+    }})
+
+    let sidemove = false;
+    let sidebar = div({
+      style: {
+        height: "100%",
+        width: "1em",
+        position: "absolute",
+        left: "0em",
+        top: "0em",
+        cursor: "ew-resize",
+      },
     })
 
-    document.addEventListener("keydown", (e)=>{
-      if (e.key == "b" && e.metaKey){
-        showterm.update(v=>!v);
+    sidebar.addEventListener("mousedown", (e)=>{
+      sidemove = true;
+      e.preventDefault()
+    })
+
+    let terminal_width = new Stored("terminal_width", 50);
+    terminal_width.subscribe((value)=>{
+      terminal.style.width = Math.max(2,value) + "%";
+    })
+
+    body.addEventListener("mousemove", (e)=>{
+      if (sidemove){
+        terminal_width.update(v=> (window.innerWidth - e.clientX) / window.innerWidth * 100);
         e.preventDefault()
       }
     })
+    body.addEventListener("mouseup", (e)=> sidemove = false)
 
-    body.appendChild(logger)
+
+    let content = div({style: {
+      height: "100%",
+      width: "100%",
+      overflowY: "scroll",
+    }})
+
+    terminal.append(sidebar,content)    
+    let showterm = new Stored("showterm", true)
+    showterm.subscribe((value)=> terminal.style.display = value ? "block" : "none")
+
+    document.addEventListener("keydown", (e)=>{
+      if (e.metaKey){
+
+        if (e.key == "b"){
+          showterm.update(v=>!v);
+          e.preventDefault()
+        }
+        if (e.key == "l" || e.key == "k"){
+          logger.innerHTML = ""
+          e.preventDefault()
+        }
+      }
+    })
+
+    body.appendChild(terminal)
+    logger = div()
+
+    let inp = input(
+      {style: {width: "100%", border: "none", padding: "0.5em"},
+      placeholder: ">>>",
+      onkeydown: (e)=>{
+        if (e.key == "Enter"){
+          try{print(eval(inp.value))}
+          catch(e){ print(e.message)}
+          inp.value = ""
+        }
+      }
+    })
+
+    content.append(
+      logger,
+      inp,
+    )
   }
-  logger.appendChild(termline(x.map(full_view)))
+  logger.appendChild(termline(x.map(preview)))
 }
 
 
