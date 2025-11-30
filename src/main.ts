@@ -34,7 +34,7 @@ const view_scalar = (kind: ScalarType, num: number)=>{
         }: {background: colors[0]}),
         width: blockSize, height: blockSize,
         "text-align": "center", "font-size": blockSize, "font-weight": "bold", },
-    }, kind == "number" ? num : kind == "block" ? (num == 0 ? "" : Math.floor((num - 1) / 3)) : kind == "boolean" ? [num == 0 ? "" : "✓"] : "")
+    }, kind == "number" ? num : kind == "block" ? (Math.floor((num + 2) / 3)) : kind == "boolean" ? [num == 0 ? "" : "✓"] : "")
 }
 
 const view_matrix = (dtype: ScalarType, data: Int32Array) => {
@@ -80,17 +80,17 @@ const cast_scalar = (X: ScalarType, Y: ScalarType, t: Tensor): Tensor => {
   let alu: string =
     Y == "boolean" ? "($0 ? 1 : 0)" :
     X == "number" ? (
-      Y == "color" ? "($0 % 3)" :
+      Y == "color" ? "$0 == 0 ? 0 : (($0 -1) % 3) + 1" :
       Y == "block" ? "($0 * 3)" :
       "ERR"
     ) :
     X == "color" ? (
-      Y == "number" ? "($0 % 3)" :
+      Y == "number" ? "$0" :
       Y == "block" ? "($0 * 3)" :
       "ERR"
     ) :
     X == "block" ? (
-      Y == "number" ? "($0 == 0 ? 0 : ($0+2) / 3) | 0" :
+      Y == "number" ? "($0 == 0 ? 0 : (($0+2) / 3) | 0)" :
       Y == "color" ? "($0 == 0 ? 0 : ($0-1) % 3 + 1)" :
       "ERR"
     ) :
@@ -173,7 +173,7 @@ const chain = (...fs: Fun[]) : Tensor => {
 }
 
 const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array) => Int32Array] => {
-  let t = chain(...rule); 
+  let t = chain(...rule);
 
   let lin: Atom[] = [];
   let smap = new Map<string, number>();
@@ -214,7 +214,7 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
 
   let ret = t.data.map(raster).join(",\n");
   code = code + `return [${ret}];`;
-  // print(code)
+  print(code)
   return [t.type, t.data.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
@@ -243,8 +243,8 @@ let fields = [
   [
     n,n,n,n,
     n,14,n,n,
-    1,2,n,n,
-    n,n,n,n,
+    1,2,3,n,
+    4,5,6,n,
 ]].map(f => Int32Array.from(f))
 
 
@@ -257,7 +257,7 @@ const view_rule = (rule: Fun[]) => {
 
 
 const rule = [not, any, and, get_color, SRC, eq, get_color, SRC, right, get_color, SRC]
-// const red = chain(eq, get_color, SRC, scalar(1, "color"))
+
 
 const is_color = (x: number): Fun => ({tag: "alu", alu: `($0 == ${x})`, expect: "color", result: "boolean", arity: 1})
 
@@ -266,9 +266,6 @@ const isgreen = is_color(2)
 const isblue = is_color(3)
 
 
-// view_rule([SRC])
-// view_rule(rule)
-// view_rule([right, red])
 
 
 const [T, S, F] = compile(rule)
@@ -299,6 +296,7 @@ view_rule([SRC])
 { // create rule search
 
   let bar = div(
+
     {
       tabIndex: 0,
       style: {
@@ -315,21 +313,33 @@ view_rule([SRC])
 
 
   let Lang = {
+    x: SRC,
     right, left, up, down,
-    src: SRC,
     eq,
-    get_color,
+    color: get_color,
+    number: get_value,
+    bool: alufun(1, "$0", "boolean"),
+    block: alufun(2, "$0 == 0 ? 0 : ($0*3)-2 + $1 -1", "number", "block"),
     isred,
     isgreen,
     isblue,
     any,
+    sum: redfun("($0 + $1)"),
+    product: redfun("$0 * $1"),
     and,
     not,
-    get_value,
     add,
+    mul: alufun(2, "$0 * $1", "number", "number"),
+    "0": scalar(0, "number"),
+    "1": scalar(1, "number"),
+    "2": scalar(2, "number"),
+    "3": scalar(3, "number"),
+    red : scalar(1, "color"),
+    green : scalar(2, "color"),
+    blue : scalar(3, "color"),
   }
 
-  let cmd : (string | null)[] = [ ]
+  let cmd : string[] = ["eq", "eq", "x"]
 
   let cmd_idx = 0;
 
@@ -339,97 +349,80 @@ view_rule([SRC])
   let suggestions : string[] = options;
 
   let stack : number[] = []
-  let todo = true;
+
 
   let outp : HTMLElement = div()
 
 
+  let done = false;
+
   let view_bar = () =>{
+    const blob = (word: string, style?: Partial<CSSStyleDeclaration>) => span(word, { style: {margin: "0 0.1em", padding: "0.2em", ...style}})
+
+    const push = (word: string) => bar.append(blob(word))
+
+    done = cmd.length == cmd.reduce((a,b)=>a+arity(Lang[b]), 0) + 1;
 
 
-    const blob = (word: string, args?: Record<string, any>) => {
-      return span(word,
-        args,
-        { 
-          style: {
-            margin: "0 0.1em",
-            padding: "0.2em",
-            borderRadius: "0.2em",
+    const usr = div(
+      {style: {position: "relative", margin: "0", padding: "0", marginTop: "0.2em",}},
+      blob(current_word ? current_word : "", {background: "var(--color)", color: "var(--background)"}),
+      (!done || current_word) ? div(
+        {style: {position: "absolute", top: "100%", left: "0", display: "flex", flexDirection: "column", zIndex: "1000",border: "1px solid #888", background: "var(--background)"}},
+        suggestions.map(k => span(
+          k,
+          {
+            style: {padding: "0.2em", cursor: "pointer"},
+            onclick: ()=> {
+              add_cmd(k)
+              view_bar()
+            }
           }
-        }
-      )
-    }
+        )),
 
-    let cur = blob(current_word);
-    cur.style.background = "var(--color)";
-    cur.style.color = "var(--background)";
-
-
-
-    bar.innerHTML = "";
-    bar.append(
-      blob("("),
+      ) : null,
     )
 
-    stack  = [1]
+    bar.innerHTML = "";
+    push("x → ")
+
+    stack = []
+
+    if (done) bar.append(usr)
 
     cmd.forEach(c=>{
-      print(c)
-      bar.append(blob(c))
-      stack[stack.length - 1]--
+      push(c)
+      stack[stack.length - 1]--;
       if (arity(Lang[c]) > 0){
-        stack.push(arity(Lang[c]))
-        bar.append(blob("("))
-      }else{
+        stack.push(arity(Lang[c]));
+        push("(")
+      } else {
         while (stack[stack.length - 1] == 0){
           stack.pop()
-          bar.append(blob(")"))
+          push(")")
         }
       }
-      print(stack)
     })
 
-    todo = (stack.reduce((a,b)=>a+b, 0) > 0)
+    if (!done) bar.append(usr)
 
-    let usr = div(
-      {style: {position: "relative", margin: "0", padding: "0", marginTop: "0.2em",}},
-      cur,
-      todo ? div(
-        {style: {
-          position: "absolute",
-          top: "100%",
-          left: "0",
-          display: "flex",
-          flexDirection: "column",
-          zIndex: "1000",
-          border: "1px solid #888",
-          background: "var(--background)",
-        }},
-        suggestions.map(k => span(k, {style: {padding: "0.2em", cursor: "pointer"}})),
-      ) : null,
-    );
-
-    bar.append(usr)
-
-
-    stack[stack.length - 1]--
-
-
-    while (stack. length > 0){
-      range(stack.pop()).forEach(()=>bar.append(blob("...")))
-      bar.append(blob(")"))
-    }
-    bar.focus()
+    stack.reverse().forEach(n=>{
+      range(n).forEach(()=>push("..."))
+      push(")")
+    })
 
     outp.remove()
 
-    if(!todo) outp = (view_rule([...cmd.map(c=>Lang[c])]))
+    if(done) outp = (view_rule([...cmd.map(c=>Lang[c])]))
   }
 
   view_bar()
 
   const add_cmd = (c:string) => {
-    cmd.push(c);
+    
+    if (done) cmd = [c, ...cmd]
+    else cmd.push(c);
+
     current_word = "";
     suggestions = options;
   }
@@ -443,13 +436,16 @@ view_rule([SRC])
     if (e.key == "ArrowLeft") cmd_idx--;
 
     if (e.key == "Backspace"){
-      if (current_word.length > 0) current_word = ""
-      else cmd.pop();
+      if (e.shiftKey) cmd.shift();
+      else{
+        if (current_word.length > 0) current_word = ""
+        else cmd.pop();
+      }
     }
 
     if (e.key == " "){
       add_cmd(suggestions[0])
-    } else if (e.key.length == 1 && todo){
+    } else if (e.key.length == 1){
       current_word += e.key;
     }
 

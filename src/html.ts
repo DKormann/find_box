@@ -205,7 +205,10 @@ const preview = (x:any) : HTMLElement=> {
 
   if (t != "string") inner = inner.replaceAll("\n", "")
   let ret = span(
-    {onclick: brackets(t)[0] != "" ?
+
+    {
+      style: {marginLeft: "0.5em"},
+      onclick: brackets(t)[0] != "" ?
       ()=>{
         ret.replaceWith(full_view(x))
       } : undefined
@@ -344,13 +347,13 @@ export const print = (...x:any[])=>{
       terminal.style.width = Math.max(2,value) + "%";
     })
 
-    body.addEventListener("mousemove", (e)=>{
+    document.addEventListener("mousemove", (e)=>{
       if (sidemove){
         terminal_width.update(v=> (window.innerWidth - e.clientX) / window.innerWidth * 100);
         e.preventDefault()
       }
     })
-    body.addEventListener("mouseup", (e)=> sidemove = false)
+    document.addEventListener("mouseup", (e)=> sidemove = false)
 
 
     let content = div({style: {
