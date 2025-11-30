@@ -60,8 +60,7 @@ type Tensor = {
 }
 
 type Fun
-= { tag: "alu", alu: string, expect: ScalarType, result: ScalarType, arity: number }
-| { tag: "reduce", alu: string }
+= { tag: "alu", reduce: boolean, alu: string, expect: ScalarType, result: ScalarType, arity: number}
 | { tag: "move", move: (i: number) => number }
 | Tensor
 
@@ -81,7 +80,7 @@ const cast_scalar = (X: ScalarType, Y: ScalarType, t: Tensor): Tensor => {
     Y == "boolean" ? "($0 ? 1 : 0)" :
     X == "number" ? (
       Y == "color" ? "$0 == 0 ? 0 : (($0 -1) % 3) + 1" :
-      Y == "block" ? "($0 * 3)" :
+      Y == "block" ? "$0 == 0 ? 0 : ($0 * 3) - 2" :
       "ERR"
     ) :
     X == "color" ? (
@@ -115,10 +114,11 @@ let app = (f: Fun, x: Tensor[]) : Tensor => {
     x = x.map(x => cast_scalar(x.type, f.expect, x))
     if (f.alu == "$0") return x[0];
     let mat = x.some(x=>x.data.length > 2)
-    data = range(mat ? mat_size : 1).map(i=> ({tag: "ALUOp", alu: f.alu, srcs: x.map(x=>x.data[x.data.length > 1 ? i : 0])}))
+    if (f.reduce) data = [x[0].data.slice(1).reduce((acc,x)=> alu([acc, x], f.alu), x[0].data[0])]
+    else data = range(mat ? mat_size : 1).map(i=> ({tag: "ALUOp", alu: f.alu, srcs: x.map(x=>x.data[x.data.length > 1 ? i : 0])}))
     type = f.result;
   }
-  if (f.tag == "reduce") data = [x[0].data.slice(1).reduce((acc,x)=> alu([acc, x], f.alu), x[0].data[0])]
+  // if (f.tag == "reduce") data = [x[0].data.slice(1).reduce((acc,x)=> alu([acc, x], f.alu), x[0].data[0])]
   if (f.tag == "move") data = range(mat_size).map(f.move).map(i=> (i > 0 )? x[0].data[i] : const_(0))
   return {tag: "tensor", data, type}
 }
@@ -129,13 +129,14 @@ const alufun = (arity: number, alu : string, ...T: ScalarType[]) : Fun => {
   if (T.length == 1) T = [T[0], T[0]];
   return {
     tag: "alu",
+    reduce: false,
     alu,
     expect: T[0], result: T[1],
     arity
   }
 }
 
-const redfun = (alu: string) : Fun => ({tag: "reduce", alu})
+const redfun = (alu: string, result: ScalarType) : Fun => ({tag: "alu", reduce: true, alu, expect: result, result, arity: 1})
 
 
 const arity = (f: Fun) => f.tag == "alu" ? f.arity : f.tag == "tensor" ? 0 : 1;
@@ -153,7 +154,7 @@ const up = move_dir(0, -1)
 const down = move_dir(0, 1)
 const add = alufun(2, "($0 + $1)", "number", "number", "number")
 const not = alufun(1, "(!$0)", "boolean")
-const any = redfun("($0 || $1)")
+const any = redfun("($0 || $1)", "boolean")
 const and = alufun(2, "($0 && $1)", "boolean")
 const eq = alufun(2, "($0 == $1)", "block", "boolean")
 const get_color = alufun(1, "$0", "color")
@@ -214,7 +215,7 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
 
   let ret = t.data.map(raster).join(",\n");
   code = code + `return [${ret}];`;
-  print(code)
+  // print(code)
   return [t.type, t.data.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
@@ -259,7 +260,7 @@ const view_rule = (rule: Fun[]) => {
 const rule = [not, any, and, get_color, SRC, eq, get_color, SRC, right, get_color, SRC]
 
 
-const is_color = (x: number): Fun => ({tag: "alu", alu: `($0 == ${x})`, expect: "color", result: "boolean", arity: 1})
+const is_color = (x: number): Fun => alufun(1, `($0 == ${x})`, "color", "boolean")
 
 const isred = is_color(1)
 const isgreen = is_color(2)
@@ -275,6 +276,7 @@ const [T, S, F] = compile(rule)
 const bench = ()=>{
 
   const IT = 200000;
+
   let st = performance.now();
   for (let i = 0; i < IT; i++) {
     F(fields[i % fields.length])
@@ -285,6 +287,8 @@ const bench = ()=>{
   let dt = et - st;
   print(`${Math.round(IT / dt)} k rules per second`);
 }
+
+bench()
 
 
 
@@ -324,8 +328,8 @@ view_rule([SRC])
     isgreen,
     isblue,
     any,
-    sum: redfun("($0 + $1)"),
-    product: redfun("$0 * $1"),
+    sum: redfun("($0 + $1)", "number"),
+    product: redfun("$0 * $1", "number"),
     and,
     not,
     add,
@@ -339,7 +343,7 @@ view_rule([SRC])
     blue : scalar(3, "color"),
   }
 
-  let cmd : string[] = ["eq", "eq", "x"]
+  let cmd : string[] = []
 
   let cmd_idx = 0;
 
