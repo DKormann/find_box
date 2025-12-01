@@ -80,7 +80,7 @@ const cast_scalar = (X: ScalarType, Y: ScalarType, t: Tensor): Tensor => {
   let alu: string =
     Y == "boolean" ? "($0 ? 1 : 0)" :
     X == "number" ? (
-      Y == "color" ? "$0 == 0 ? 0 : (($0 -1) % 3) + 1" :
+      Y == "color" ? "$0 > 3 ? 4 : $0" :
       Y == "block" ? "$0 == 0 ? 0 : ($0 * 3) - 2" :
       "ERR"
     ) :
@@ -262,31 +262,47 @@ let bar = div({
 
 
 
-let Lang : Record<string, Fun> = {
-  x: SRC,
-  right: move_dir(1, 0), left: move_dir(-1, 0), up: move_dir(0, -1), down: move_dir(0, 1),
-  eq: alufun(2, "($0 == $1)", "block", "boolean"),
-  color: alufun(1, "$0", "color"),
+let Core : Record<string, Fun> = {
+
+
+
   number: alufun(1, "$0", "number"),
-  bool: alufun(1, "$0", "boolean"),
-  block: alufun(2, "$0 == 0 ? 0 : ($0*3)-2 + $1 -1", "number", "block"),
-  asblock: alufun(1, "$0" , "block"),
-  isred : is_color(1),
-  isgreen : is_color(2),
-  isblue : is_color(3),
+  isred: is_color(1),
+  isgreen: is_color(2),
+  isblue: is_color(3),
   any: redfun("($0 || $1)", "boolean"),
-  all: redfun("($0 && $1)", "boolean"),
   sum: redfun("($0 + $1)", "number"),
-  product: redfun("($0 * $1 | 0)", "number"),
-  and: alufun(2, "($0 && $1)", "boolean"),
-  or: alufun(2, "($0 || $1)", "boolean"),
   not: alufun(1, "(!$0)", "boolean"),
+  
+  and: alufun(2, "($0 && $1)", "boolean"),
+  eq: alufun(2, "($0 == $1)", "block", "boolean"),
   add: alufun(2, "($0 + $1)", "number", "number"),
-  mul: alufun(2, "$0 * $1", "number", "number"),
+
   "0": scalar(0, "number"),
   "1": scalar(1, "number"),
   "2": scalar(2, "number"),
   "3": scalar(3, "number"),
+  x: SRC,
+}
+
+
+let Lang : Record<string, Fun> = {
+  ...Core,
+
+  right: move_dir(1, 0),
+  up: move_dir(0, -1),
+
+
+  left: move_dir(-1, 0),
+  down: move_dir(0, 1),
+
+  color: alufun(1, "$0", "color"),
+  block: alufun(2, "$0 == 0 ? 0 : ($0*3)-2 + $1 -1", "number", "block"),
+  asblock: alufun(1, "$0" , "block"),
+  all: redfun("($0 && $1)", "boolean"),
+  product: redfun("($0 * $1 | 0)", "number"),
+  or: alufun(2, "($0 || $1)", "boolean"),
+  mul: alufun(2, "$0 * $1", "number", "number"),
   red : scalar(1, "color"),
   green : scalar(2, "color"),
   blue : scalar(3, "color"),
@@ -321,7 +337,7 @@ type CMD = {
   words: string[]
   current_word: string
 }
-let command = new Writable<CMD>({words: ["x"], current_word: ""})
+let command = new Writable<CMD>({words: [], current_word: ""})
 
 
 let suggestions = (cmd: CMD) =>
@@ -396,7 +412,6 @@ const add_cmd = (c:string) => {
 }
 
 command.subscribe(cm=>{
-
   view_bar(cm)
 })
 
@@ -444,7 +459,6 @@ document.addEventListener("keydown", (e)=>{
 
       while (true){
         let nl = sug.map(k=>k.slice(cm.current_word.length, cm.current_word.length + 1))
-        print("nl", nl)
         if (nl.some(k => k != nl[0])) break;
         cm.current_word += nl[0];
       }
@@ -482,18 +496,15 @@ for (let i = 0; i < 16; i++) {
   fields.push(f);
 }
 
-print(fields[0])
-
-
 
 let game = div()
 put(game)
 
 function play(level: number){
-  print("play:", level, levels[level])
+  let code = levels[level]();
   game.innerHTML = "";
   game.append(h2(`level ${level+1}`))
-  let R = levels[level].split(" ").map(c=>Lang[c])
+  let R = code.split(" ").map(c=>Lang[c])
   let view_boxes = (T: ScalarType, S: "scalar" | "matrix", D: Int32Array[]) :HTMLTableCellElement[] =>  D.map(d => td(viewdata(T, S, d)))
   let view_fun = (T: ScalarType, S: "scalar" | "matrix", F: (L: Int32Array) => Int32Array) :HTMLTableCellElement[] => view_boxes(T, S, fields.map(f => F(f)))
   let row = (title: string, ...data: any[]) => tr(td(title), ...data)
@@ -529,37 +540,74 @@ function play(level: number){
     row("expect", ...view_fun(...compile(R))),
     row_promise("check", check.map(c=> view_boxes("boolean", "scalar", c))),
     row("all", td(check_all.map(b=>view_scalar("boolean", Number(b)))))
-  ),bar)
+  ),bar,button("spoiler", {onclick: ()=>popup(div(p(code)))}))
+}
+
+let Funs : Map<Fun, string> = new Map(Object.entries(Core).map(([k, v])=>[v, k]))
+
+let FunSizes = new Map<number, string[]>()
+Funs.forEach((v, k)=>{FunSizes.set(arity(k), [...FunSizes.get(arity(k)) || [], v])})
+
+const sample_word = (a: number) =>  FunSizes.get(a)[Math.floor(Math.random() * FunSizes.get(a).length)]
+const randint = (min: number, max: number) => Math.floor(Math.random() * (max - min) + 0.99) + min
+
+const _sample_rule = (size: number) : string[] => {
+
+
+  if (Math.random() < 0.1) size --;
+  if (size < 2) return [sample_word(0)];
+  if (size == 2) return [sample_word(1), sample_word(0)];
+  if (Math.random() < 0.6){
+    return [sample_word(1), ..._sample_rule(size -1)]
+  }
+  let s1 = randint(1, size-2)
+  let s2 = size - 1 - s1
+  return [sample_word(2), ..._sample_rule(s1), ..._sample_rule(s2)]
+}
+
+
+const sample_rule = (size: number) => {
+
+  let res = ["any", ..._sample_rule(size)]
+  let [T, S, F] = compile(res.map(w=>Lang[w]))
+  let y = fields.map(f=>F(f)[0])
+
+  if (y.some(d=>d != y[0])) {
+    return res
+  };
+  
+
+  return sample_rule(size)
 }
 
 let levels = [
 
-  `number x`,
-  `color x`,
-  `sum x`,
-  `${sample("direction")} x`,
-  `add 1 x`,
-  `mul 2 x`,
-  
-  `isblue color x`,
-  `isred color x`,
-  `isgreen color x`,
-  `eq ${sample("number")} number x`,
-  `eq ${sample("number")} number x`,
+  ()=>`number x`,
+  ()=>`color x`,
+  ()=>`sum x`,
+  ()=>`${sample("direction")} x`,
+  ()=>`add 1 x`,
+  ()=>`mul 2 x`,
 
-  `any eq ${sample("color")} color x`,
-  `any eq ${sample("color")} color x`,
-  `any eq ${sample("number")} number x`,
-  `any eq ${sample("number")} number x`,
-
-  `any or eq ${sample("color")} color x eq ${sample("number")} number x`,
-  `any and x ${sample("direction")} x`
+  ()=>`isblue color x`,
+  ()=>`isred color x`,
+  ()=>`isgreen color x`,
+  ()=>`eq ${sample("number")} number x`,
+  ()=>`eq ${sample("number")} number x`,
+  ()=>`any eq ${sample("color")} color x`,
+  ()=>`any eq ${sample("color")} color x`,
+  ()=>`any eq ${sample("number")} number x`,
+  ()=>`any eq ${sample("number")} number x`,
+  ()=>`any or eq ${sample("color")} color x eq ${sample("number")} number x`,
+  ()=>`any and x eq number x ${sample("number")}`,
+  ()=>`any and x ${sample("direction")} x`,
+  ()=>sample_rule(3).join(" "),
 ]
 
 
 levels.forEach(l=>{
   try{
-    compile(l.split(" ").map(c=>Lang[c]))
+    compile(l().split(" ").map(c=>Lang[c]))
   }catch(e){
     print("error",l , e.message)
   }
@@ -591,13 +639,14 @@ put(
           ),
           p(
             "random",
-            { onclick: ()=>level.set(Math.floor(Math.random() * levels.length)), style: {cursor: "pointer"}}
+            { onclick: ()=>{level.set(levels.length - 1, true), pop.remove()}, style: {cursor: "pointer"},}
           )
         ))
       }
     }
   ),
   button("Next", {onclick: ()=>level.update(v=>v+1)}),
+
 )
 
 
