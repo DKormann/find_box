@@ -1,4 +1,4 @@
-import { clear_terminal, div, h2, html, p, print, span, table, td, tr } from "./html"
+import { button, clear_terminal, div, h2, html, input, p, popup, print, span, table, td, tr } from "./html"
 import { Stored, Writable } from "./store";
 
 const doc = div(
@@ -86,7 +86,7 @@ const cast_scalar = (X: ScalarType, Y: ScalarType, t: Tensor): Tensor => {
     ) :
     X == "color" ? (
       Y == "number" ? "$0" :
-      Y == "block" ? "($0 * 3)" :
+      Y == "block" ? "$0" :
       "ERR"
     ) :
     X == "block" ? (
@@ -194,7 +194,7 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
   let raster = (atom: Atom) => {
     if (seen.has(atom)) return seen.get(atom);
     let c = atom.tag == "source" ? `L[${atom.index}]` : atom.srcs.reduce((p, c, i) => p.replaceAll(`$${i}`, raster(c)), atom.alu);
-    if (usecount.get(atom) > 1) {
+    if (usecount.get(atom) > 0) {
       let key = `x${seen.size}`;
       seen.set(atom, key);
       code += `const ${key} = ${c};\n`;
@@ -205,7 +205,7 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
 
   let ret = t.data.map(raster).join(",\n");
   code = code + `return [${ret}];`;
-  // print(code)
+
   return [t.type, t.data.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
@@ -238,6 +238,7 @@ let fields = [
 ]].map(f => Int32Array.from(f))
 
 
+
 const view_rule = (rule: Fun[]) => {
   let [T, S, F] = compile(rule);
   return p(
@@ -261,7 +262,7 @@ let bar = div({
 
 
 
-let Lang = {
+let Lang : Record<string, Fun> = {
   x: SRC,
   right: move_dir(1, 0), left: move_dir(-1, 0), up: move_dir(0, -1), down: move_dir(0, 1),
   eq: alufun(2, "($0 == $1)", "block", "boolean"),
@@ -269,13 +270,16 @@ let Lang = {
   number: alufun(1, "$0", "number"),
   bool: alufun(1, "$0", "boolean"),
   block: alufun(2, "$0 == 0 ? 0 : ($0*3)-2 + $1 -1", "number", "block"),
+  asblock: alufun(1, "$0" , "block"),
   isred : is_color(1),
   isgreen : is_color(2),
   isblue : is_color(3),
   any: redfun("($0 || $1)", "boolean"),
+  all: redfun("($0 && $1)", "boolean"),
   sum: redfun("($0 + $1)", "number"),
-  product: redfun("$0 * $1", "number"),
+  product: redfun("($0 * $1 | 0)", "number"),
   and: alufun(2, "($0 && $1)", "boolean"),
+  or: alufun(2, "($0 || $1)", "boolean"),
   not: alufun(1, "(!$0)", "boolean"),
   add: alufun(2, "($0 + $1)", "number", "number"),
   mul: alufun(2, "$0 * $1", "number", "number"),
@@ -306,7 +310,7 @@ let Lang = {
     let dt = et - st;
     print(`${Math.round(IT / dt)} k rules per second`);
   }
-  bench()
+  // bench()
 }
 
 const options = Object.entries(Lang).map(([key])=>key)
@@ -327,14 +331,10 @@ let suggestions = (cmd: CMD) =>
 let done = (cmd: CMD) => cmd.words.length == cmd.words.reduce((a,b)=>a+arity(Lang[b]), 0) + 1
 
 
-command.subscribe(c=>print("cmd:", c))
 
 let view_bar = (cm: CMD) =>{
-  print("view_bar", cm)
 
   let {words, current_word} = cm;
-
-  print("view_bar", words)
 
   let stack : number[] = []
   const blob = (word: string, style?: Partial<CSSStyleDeclaration>) => span(word, { style: {margin: "0 0.1em", padding: "0.2em", ...style}})
@@ -388,7 +388,7 @@ let view_bar = (cm: CMD) =>{
 
 
 const add_cmd = (c:string) => {
-  print("add_cmd", c)
+
   command.update(cm=>({
     words: done(cm) ? [c, ...cm.words] : [...cm.words, c],
     current_word: ""
@@ -396,11 +396,11 @@ const add_cmd = (c:string) => {
 }
 
 command.subscribe(cm=>{
-  print("new command:", cm)
+
   view_bar(cm)
 })
 
-bar.addEventListener("keydown", (e)=>{
+document.addEventListener("keydown", (e)=>{
   
 
   if (e.key == "Backspace"){
@@ -416,7 +416,6 @@ bar.addEventListener("keydown", (e)=>{
 
   command.update(cm=>{
 
-    print("command_update", e.key, cm)
 
     let sug = suggestions(cm)
     let don = done(cm)
@@ -456,41 +455,149 @@ bar.addEventListener("keydown", (e)=>{
 })
 
 
-{
 
-  print("render")
-  let R = "isred right x".split(" ").map(c=>Lang[c])
-  
-  let [T, S, F] = compile(R)
-  
-  
-  let row = (title: string, ...data: any[]) => tr(td(title), td(
-    {style:{
-      display: "flex",
-      "flex-wrap": "wrap",
-    }},
-    data))
-  let output = div();
-  command.map(cm=>{
-    if (!done(cm)) return;
-    let [T, S, F] = compile(cm.words.map(c=>Lang[c]))
-    output.innerHTML = "";
-    output.append(div(
-      {style: {display: "flex", "flex-wrap": "wrap"}},
-      fields.map(f => div(
-        {style: {width: `calc(${blockSize} * 4)`}},
-        viewdata(T, S, F(f))))
-    ))
-  })
 
-  put(table(
-    row("input", ...fields.map(f => view_matrix("block", f))),
-    row("formula", bar),
-    row("output", output),
-    row("expect:", ...fields.map(f => viewdata(T, S, F(f)))),
-  ))
 
-  bar.focus()
+fields = []
 
+
+
+const sample = (t: string) => {
+
+  if (t == "number") return Math.floor(Math.random() * 3) + 1;
+  if (t == "color") return ["red", "green", "blue"][Math.floor(Math.random() * 3)];
+  if (t == "boolean") return Math.random() < 0.5 ? 0 : 1;
+  if (t == "block") return Math.floor(Math.random() * 9) + 1;
+  if (t == "direction") return ["right", "left", "up", "down"][Math.floor(Math.random() * 4)];
 
 }
+
+
+for (let i = 0; i < 16; i++) {
+
+  let f = Int32Array.from({length: 16}, (_, k) => k == i ? 1 : 0)
+  for (let j = 0; j < Math.floor(Math.random() * 3) + 2; j++) {
+    f[Math.floor(Math.random() * 16)] = sample("block") as number;
+  }
+  fields.push(f);
+}
+
+print(fields[0])
+
+
+
+let game = div()
+put(game)
+
+function play(level: number){
+  print("play:", level, levels[level])
+  game.innerHTML = "";
+  game.append(h2(`level ${level+1}`))
+  let R = levels[level].split(" ").map(c=>Lang[c])
+  let view_boxes = (T: ScalarType, S: "scalar" | "matrix", D: Int32Array[]) :HTMLTableCellElement[] =>  D.map(d => td(viewdata(T, S, d)))
+  let view_fun = (T: ScalarType, S: "scalar" | "matrix", F: (L: Int32Array) => Int32Array) :HTMLTableCellElement[] => view_boxes(T, S, fields.map(f => F(f)))
+  let row = (title: string, ...data: any[]) => tr(td(title), ...data)
+
+  let row_promise = (title: string, promise: Writable<HTMLTableCellElement[]>) => {
+    let el = tr();
+    promise.subscribe(data=>{
+      el.innerHTML = "";
+      el.append(td(title), ...data)
+    })
+    return el;
+  }
+  let usr_fun = new Writable<Fun[]>(null)
+
+  command.subscribe(cm=>{
+    if (!done(cm)) return;
+    usr_fun.set(cm.words.map(c=>Lang[c]))
+  })
+  let check_fun = usr_fun.map(f=>[Lang.all, Lang.eq, ...R, ...f])
+
+  let check = check_fun.map(f=>{
+    let [T, S, F] = compile(f)
+    return fields.map(f=>F(f))
+  })
+
+  print("comp:",compile(R)[2](fields[0]))
+
+  let check_all = check.map(c=>c.every(d=>d.every(b=>b == 1)))
+
+  game.append(table(
+    row("input", ...view_fun(...compile([SRC]))),
+    row_promise("output", usr_fun.map(f=>view_fun(...compile(f)))),
+    row("expect", ...view_fun(...compile(R))),
+    row_promise("check", check.map(c=> view_boxes("boolean", "scalar", c))),
+    row("all", td(check_all.map(b=>view_scalar("boolean", Number(b)))))
+  ),bar)
+}
+
+let levels = [
+
+  `number x`,
+  `color x`,
+  `sum x`,
+  `${sample("direction")} x`,
+  `add 1 x`,
+  `mul 2 x`,
+  
+  `isblue color x`,
+  `isred color x`,
+  `isgreen color x`,
+  `eq ${sample("number")} number x`,
+  `eq ${sample("number")} number x`,
+
+  `any eq ${sample("color")} color x`,
+  `any eq ${sample("color")} color x`,
+  `any eq ${sample("number")} number x`,
+  `any eq ${sample("number")} number x`,
+
+  `any or eq ${sample("color")} color x eq ${sample("number")} number x`,
+  `any and x ${sample("direction")} x`
+]
+
+
+levels.forEach(l=>{
+  try{
+    compile(l.split(" ").map(c=>Lang[c]))
+  }catch(e){
+    print("error",l , e.message)
+  }
+})
+
+
+let level = new Stored("level", 0)
+
+
+level.subscribe(play)
+
+
+put(
+  button(
+    "Levels",
+    {
+      onclick: e=>{
+
+        let pop = popup(div(
+          levels.map((l,i)=>p(
+            {
+              onclick: e=>{
+                level.set(i)
+                pop.remove()
+              },
+              style: {cursor: "pointer"},
+            },
+            `level ${i+1}`)
+          ),
+          p(
+            "random",
+            { onclick: ()=>level.set(Math.floor(Math.random() * levels.length)), style: {cursor: "pointer"}}
+          )
+        ))
+      }
+    }
+  ),
+  button("Next", {onclick: ()=>level.update(v=>v+1)}),
+)
+
+
