@@ -148,17 +148,6 @@ const move_dir = (dx: number, dy: number) : Fun => ({tag: "move", move: ((i:numb
   return x + y * 4;
 })})
 
-const right = move_dir(1, 0)
-const left = move_dir(-1, 0)
-const up = move_dir(0, -1)
-const down = move_dir(0, 1)
-const add = alufun(2, "($0 + $1)", "number", "number", "number")
-const not = alufun(1, "(!$0)", "boolean")
-const any = redfun("($0 || $1)", "boolean")
-const and = alufun(2, "($0 && $1)", "boolean")
-const eq = alufun(2, "($0 == $1)", "block", "boolean")
-const get_color = alufun(1, "$0", "color")
-const get_value = alufun(1, "$0", "number")
 
 
 const chain = (...fs: Fun[]) : Tensor => {
@@ -219,7 +208,6 @@ const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array
   return [t.type, t.data.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
-compile([add, SRC, SRC])
 
 const viewdata = (T: ScalarType, S: "scalar" | "matrix", data: Int32Array) => {
   if (S == "scalar") return div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, data[0]));
@@ -255,23 +243,52 @@ const view_rule = (rule: Fun[]) => {
     {style: {display: "flex", "flex-wrap": "wrap"}},
     fields.map(f => viewdata(T,S, F(f)))))
 }
-
-
-const rule = [not, any, and, get_color, SRC, eq, get_color, SRC, right, get_color, SRC]
-
-
 const is_color = (x: number): Fun => alufun(1, `($0 == ${x})`, "color", "boolean")
+view_rule([SRC])
 
-const isred = is_color(1)
-const isgreen = is_color(2)
-const isblue = is_color(3)
+let bar = div(
+  {
+    tabIndex: 0,
+    style: {
+      display: "flex", flexDirection: "row",
+      border: ".2em solid #888", padding: ".2em",
+    }
+  })
+
+bar.focus()
 
 
 
+let Lang = {
+  x: SRC,
+  right: move_dir(1, 0), left: move_dir(-1, 0), up: move_dir(0, -1), down: move_dir(0, 1),
+  eq: alufun(2, "($0 == $1)", "block", "boolean"),
+  color: alufun(1, "$0", "color"),
+  number: alufun(1, "$0", "number"),
+  bool: alufun(1, "$0", "boolean"),
+  block: alufun(2, "$0 == 0 ? 0 : ($0*3)-2 + $1 -1", "number", "block"),
+  isred : is_color(1),
+  isgreen : is_color(2),
+  isblue : is_color(3),
+  any: redfun("($0 || $1)", "boolean"),
+  sum: redfun("($0 + $1)", "number"),
+  product: redfun("$0 * $1", "number"),
+  and: alufun(2, "($0 && $1)", "boolean"),
+  not: alufun(1, "(!$0)", "boolean"),
+  add: alufun(2, "($0 + $1)", "number", "number"),
+  mul: alufun(2, "$0 * $1", "number", "number"),
+  "0": scalar(0, "number"),
+  "1": scalar(1, "number"),
+  "2": scalar(2, "number"),
+  "3": scalar(3, "number"),
+  red : scalar(1, "color"),
+  green : scalar(2, "color"),
+  blue : scalar(3, "color"),
+}
+
+const rule = "not any and color x eq color x right color x".split(" ").map(c=>Lang[c])
 
 const [T, S, F] = compile(rule)
-
-
 
 const bench = ()=>{
 
@@ -291,192 +308,138 @@ const bench = ()=>{
 bench()
 
 
+let cmd : string[] = []
 
-view_rule([SRC])
+let cmd_idx = 0;
+
+let current_word = "";
+
+const options = Object.entries(Lang).map(([key])=>key)
+let suggestions : string[] = options;
+
+let stack : number[] = []
 
 
+let outp : HTMLElement = div()
 
 
-{ // create rule search
+let done = false;
 
-  let bar = div(
+let view_bar = () =>{
+  const blob = (word: string, style?: Partial<CSSStyleDeclaration>) => span(word, { style: {margin: "0 0.1em", padding: "0.2em", ...style}})
 
-    {
-      tabIndex: 0,
-      style: {
-        display: "flex",
-        flexDirection: "row",
+  const push = (word: string) => bar.append(blob(word))
 
-        border: ".2em solid #888",
-        padding: ".2em",
+  done = cmd.length == cmd.reduce((a,b)=>a+arity(Lang[b]), 0) + 1;
+
+
+  const usr = div(
+    {style: {position: "relative", margin: "0", padding: "0", marginTop: "0.2em",}},
+    blob(current_word ? current_word : "", {background: "var(--color)", color: "var(--background)"}),
+    (!done || current_word) ? div(
+      {style: {position: "absolute", top: "100%", left: "0", display: "flex", flexDirection: "column", zIndex: "1000",border: "1px solid #888", background: "var(--background)"}},
+      suggestions.map(k => span(
+        k,
+        {
+          style: {padding: "0.2em", cursor: "pointer"},
+          onclick: ()=> {
+            add_cmd(k)
+            view_bar()
+          }
+        }
+      )),
+
+    ) : null,
+  )
+
+  bar.innerHTML = "";
+  push("x → ")
+
+  stack = []
+
+  if (done) bar.append(usr)
+
+  cmd.forEach(c=>{
+    push(c)
+    stack[stack.length - 1]--;
+    if (arity(Lang[c]) > 0){
+      stack.push(arity(Lang[c]));
+      push("(")
+    } else {
+      while (stack[stack.length - 1] == 0){
+        stack.pop()
+        push(")")
       }
-    })
+    }
+  })
 
-  bar.focus()
+  if (!done) bar.append(usr)
 
+  stack.reverse().forEach(n=>{
+    range(n).forEach(()=>push("..."))
+    push(")")
+  })
 
+  outp.remove()
 
-  let Lang = {
-    x: SRC,
-    right, left, up, down,
-    eq,
-    color: get_color,
-    number: get_value,
-    bool: alufun(1, "$0", "boolean"),
-    block: alufun(2, "$0 == 0 ? 0 : ($0*3)-2 + $1 -1", "number", "block"),
-    isred,
-    isgreen,
-    isblue,
-    any,
-    sum: redfun("($0 + $1)", "number"),
-    product: redfun("$0 * $1", "number"),
-    and,
-    not,
-    add,
-    mul: alufun(2, "$0 * $1", "number", "number"),
-    "0": scalar(0, "number"),
-    "1": scalar(1, "number"),
-    "2": scalar(2, "number"),
-    "3": scalar(3, "number"),
-    red : scalar(1, "color"),
-    green : scalar(2, "color"),
-    blue : scalar(3, "color"),
+  if(done) outp = (view_rule([...cmd.map(c=>Lang[c])]))
+}
+
+view_bar()
+
+const add_cmd = (c:string) => {
+  
+  if (done) cmd = [c, ...cmd]
+  else cmd.push(c);
+
+  current_word = "";
+  suggestions = options;
+}
+
+bar.addEventListener("keydown", (e)=>{
+
+  if (e.key == "ArrowRight"){
+    cmd_idx++;
   }
 
-  let cmd : string[] = []
+  if (e.key == "ArrowLeft") cmd_idx--;
 
-  let cmd_idx = 0;
+  if (e.key == "Backspace"){
+    if (e.shiftKey) cmd.shift();
+    else{
+      if (current_word.length > 0) current_word = ""
+      else cmd.pop();
+    }
+  }
 
-  let current_word = "";
-
-  const options = Object.entries(Lang).map(([key])=>key)
-  let suggestions : string[] = options;
-
-  let stack : number[] = []
-
-
-  let outp : HTMLElement = div()
-
-
-  let done = false;
-
-  let view_bar = () =>{
-    const blob = (word: string, style?: Partial<CSSStyleDeclaration>) => span(word, { style: {margin: "0 0.1em", padding: "0.2em", ...style}})
-
-    const push = (word: string) => bar.append(blob(word))
-
-    done = cmd.length == cmd.reduce((a,b)=>a+arity(Lang[b]), 0) + 1;
+  if (e.key == " "){
+    add_cmd(suggestions[0])
+  } else if (e.key.length == 1){
+    current_word += e.key;
+  }
 
 
-    const usr = div(
-      {style: {position: "relative", margin: "0", padding: "0", marginTop: "0.2em",}},
-      blob(current_word ? current_word : "", {background: "var(--color)", color: "var(--background)"}),
-      (!done || current_word) ? div(
-        {style: {position: "absolute", top: "100%", left: "0", display: "flex", flexDirection: "column", zIndex: "1000",border: "1px solid #888", background: "var(--background)"}},
-        suggestions.map(k => span(
-          k,
-          {
-            style: {padding: "0.2em", cursor: "pointer"},
-            onclick: ()=> {
-              add_cmd(k)
-              view_bar()
-            }
-          }
-        )),
+  suggestions = options.filter(k => k.startsWith(current_word))
 
-      ) : null,
-    )
-
-    bar.innerHTML = "";
-    push("x → ")
-
-    stack = []
-
-    if (done) bar.append(usr)
-
-    cmd.forEach(c=>{
-      push(c)
-      stack[stack.length - 1]--;
-      if (arity(Lang[c]) > 0){
-        stack.push(arity(Lang[c]));
-        push("(")
-      } else {
-        while (stack[stack.length - 1] == 0){
-          stack.pop()
-          push(")")
-        }
-      }
-    })
-
-    if (!done) bar.append(usr)
-
-    stack.reverse().forEach(n=>{
-      range(n).forEach(()=>push("..."))
-      push(")")
-    })
-
-    outp.remove()
-
-    if(done) outp = (view_rule([...cmd.map(c=>Lang[c])]))
+  if (suggestions.length == 1){
+    add_cmd(suggestions[0])
+  }
+  if (suggestions.length == 0){
+    current_word = current_word.slice(0, -1);
+    suggestions = options;
+  }
+  
+  while (true){
+    let nl = suggestions.map(k=>k.slice(current_word.length, current_word.length + 1))
+    if (nl.some(k => k != nl[0])) break;
+    current_word += nl[0];
   }
 
   view_bar()
 
-  const add_cmd = (c:string) => {
-    
-    if (done) cmd = [c, ...cmd]
-    else cmd.push(c);
+})
 
-    current_word = "";
-    suggestions = options;
-  }
+put(bar)
 
-  bar.addEventListener("keydown", (e)=>{
+bar.focus()
 
-    if (e.key == "ArrowRight"){
-      cmd_idx++;
-    }
-
-    if (e.key == "ArrowLeft") cmd_idx--;
-
-    if (e.key == "Backspace"){
-      if (e.shiftKey) cmd.shift();
-      else{
-        if (current_word.length > 0) current_word = ""
-        else cmd.pop();
-      }
-    }
-
-    if (e.key == " "){
-      add_cmd(suggestions[0])
-    } else if (e.key.length == 1){
-      current_word += e.key;
-    }
-
-
-    suggestions = options.filter(k => k.startsWith(current_word))
-
-    if (suggestions.length == 1){
-      add_cmd(suggestions[0])
-    }
-    if (suggestions.length == 0){
-      current_word = current_word.slice(0, -1);
-      suggestions = options;
-    }
-    
-    while (true){
-      let nl = suggestions.map(k=>k.slice(current_word.length, current_word.length + 1))
-      if (nl.some(k => k != nl[0])) break;
-      current_word += nl[0];
-    }
-
-    view_bar()
-
-  })
-
-  put(bar)
-
-  bar.focus()
-
-
-}
