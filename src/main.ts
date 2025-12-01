@@ -1,4 +1,5 @@
-import { clear_terminal, div, h2, html, p, print, span } from "./html"
+import { clear_terminal, div, h2, html, p, print, span, table, td, tr } from "./html"
+import { Stored, Writable } from "./store";
 
 const doc = div(
   {class: "document",
@@ -239,9 +240,12 @@ let fields = [
 
 const view_rule = (rule: Fun[]) => {
   let [T, S, F] = compile(rule);
-  return put(p(
+  return p(
     {style: {display: "flex", "flex-wrap": "wrap"}},
-    fields.map(f => viewdata(T,S, F(f)))))
+    fields.map(f => div(
+      {style: {width: `calc(${blockSize} * 4)`}},
+      viewdata(T,S, F(f)))
+    ))
 }
 const is_color = (x: number): Fun => alufun(1, `($0 == ${x})`, "color", "boolean")
 view_rule([SRC])
@@ -286,66 +290,69 @@ let Lang = {
   blue : scalar(3, "color"),
 }
 
-const rule = "not any and color x eq color x right color x".split(" ").map(c=>Lang[c])
+{
+  const rule = "not any and color x eq color x right color x".split(" ").map(c=>Lang[c])
+  const [T, S, F] = compile(rule)
 
-const [T, S, F] = compile(rule)
+  const bench = ()=>{
 
-const bench = ()=>{
+    const IT = 200000;
 
-  const IT = 200000;
-
-  let st = performance.now();
-  for (let i = 0; i < IT; i++) {
-    F(fields[i % fields.length])
+    let st = performance.now();
+    for (let i = 0; i < IT; i++) {
+      F(fields[i % fields.length])
+    }
+    
+    
+    let et = performance.now();
+    let dt = et - st;
+    print(`${Math.round(IT / dt)} k rules per second`);
   }
-  
-  
-  let et = performance.now();
-  let dt = et - st;
-  print(`${Math.round(IT / dt)} k rules per second`);
+  bench()
 }
 
-bench()
-
-
-let cmd : string[] = []
-
-let cmd_idx = 0;
-
-let current_word = "";
-
 const options = Object.entries(Lang).map(([key])=>key)
-let suggestions : string[] = options;
-
-let stack : number[] = []
 
 
-let outp : HTMLElement = div()
+
+type CMD = {
+  words: string[]
+  current_word: string
+}
+let command = new Writable<CMD>({words: ["x"], current_word: ""})
 
 
-let done = false;
+let suggestions = (cmd: CMD) =>
+  (done(cmd) ?options.filter(k=>arity(Lang[k]) > 0) :options)
+  .filter(k =>k.startsWith(cmd.current_word))
 
-let view_bar = () =>{
+let done = (cmd: CMD) => cmd.words.length == cmd.words.reduce((a,b)=>a+arity(Lang[b]), 0) + 1
+
+
+command.subscribe(c=>print("cmd:", c))
+
+let view_bar = (cm: CMD) =>{
+  print("view_bar", cm)
+
+  let {words, current_word} = cm;
+
+  print("view_bar", words)
+
+  let stack : number[] = []
   const blob = (word: string, style?: Partial<CSSStyleDeclaration>) => span(word, { style: {margin: "0 0.1em", padding: "0.2em", ...style}})
 
   const push = (word: string) => bar.append(blob(word))
 
-  done = cmd.length == cmd.reduce((a,b)=>a+arity(Lang[b]), 0) + 1;
-
-
   const usr = div(
     {style: {position: "relative", margin: "0", padding: "0", marginTop: "0.2em",}},
     blob(current_word ? current_word : "", {background: "var(--color)", color: "var(--background)"}),
-    (!done || current_word) ? div(
+    (!done(cm) || current_word) ? div(
       {style: {position: "absolute", top: "100%", left: "0", display: "flex", flexDirection: "column", zIndex: "1000",border: "1px solid #888", background: "var(--background)"}},
-      suggestions.map(k => span(
+      suggestions(cm).map(k => span(
         k,
         {
           style: {padding: "0.2em", cursor: "pointer"},
-          onclick: ()=> {
-            add_cmd(k)
-            view_bar()
-          }
+          onclick: ()=> add_cmd(k)
         }
       )),
 
@@ -357,9 +364,9 @@ let view_bar = () =>{
 
   stack = []
 
-  if (done) bar.append(usr)
+  if (done(cm)) bar.append(usr)
 
-  cmd.forEach(c=>{
+  words.forEach(c=>{
     push(c)
     stack[stack.length - 1]--;
     if (arity(Lang[c]) > 0){
@@ -373,73 +380,120 @@ let view_bar = () =>{
     }
   })
 
-  if (!done) bar.append(usr)
+  if (!done(cm)) bar.append(usr)
 
   stack.reverse().forEach(n=>{
     range(n).forEach(()=>push("..."))
     push(")")
   })
 
-  outp.remove()
-
-  if(done) outp = (view_rule([...cmd.map(c=>Lang[c])]))
 }
 
-view_bar()
 
 const add_cmd = (c:string) => {
-  
-  if (done) cmd = [c, ...cmd]
-  else cmd.push(c);
-
-  current_word = "";
-  suggestions = options;
+  print("add_cmd", c)
+  command.update(cm=>({
+    words: done(cm) ? [c, ...cm.words] : [...cm.words, c],
+    current_word: ""
+  }))
 }
 
+command.subscribe(cm=>{
+  print("new command:", cm)
+  view_bar(cm)
+})
+
 bar.addEventListener("keydown", (e)=>{
-
-  if (e.key == "ArrowRight"){
-    cmd_idx++;
-  }
-
-  if (e.key == "ArrowLeft") cmd_idx--;
+  
 
   if (e.key == "Backspace"){
-    if (e.shiftKey) cmd.shift();
-    else{
-      if (current_word.length > 0) current_word = ""
-      else cmd.pop();
+    command.update(cm=>{
+      if (e.shiftKey) return {words: cm.words.slice(1), current_word: cm.current_word}
+      else{
+        if (cm.current_word.length > 0) return {words: cm.words, current_word: ""}
+        else return {words: cm.words.slice(0, -1), current_word: cm.current_word}
+      }
+    })
+    return;
+  }
+
+  command.update(cm=>{
+
+    print("command_update", e.key, cm)
+
+    let sug = suggestions(cm)
+    let don = done(cm)
+
+    const add_word = (w: string) =>{
+      print("add_word", w, cm)
+      cm.words = don ? [w, ...cm.words] : [...cm.words, w];
+      cm.current_word = "";
+      print("add_word", cm)
     }
-  }
+    print("key", e.key)
 
-  if (e.key == " "){
-    add_cmd(suggestions[0])
-  } else if (e.key.length == 1){
-    current_word += e.key;
-  }
+    if (e.key.length == 1){
+      print("key", e.key)
+      if (e.key == " "){
+        add_word(sug[0])
+      }else{
+        cm.current_word += e.key;
+      }
+      print(cm)
+    }
 
+    sug = suggestions(cm)
 
-  suggestions = options.filter(k => k.startsWith(current_word))
-
-  if (suggestions.length == 1){
-    add_cmd(suggestions[0])
-  }
-  if (suggestions.length == 0){
-    current_word = current_word.slice(0, -1);
-    suggestions = options;
-  }
-  
-  while (true){
-    let nl = suggestions.map(k=>k.slice(current_word.length, current_word.length + 1))
-    if (nl.some(k => k != nl[0])) break;
-    current_word += nl[0];
-  }
-
-  view_bar()
+    print(sug)
+    
+    if (sug.length == 1){
+      add_word(sug[0])
+    }
+    
+    if (sug.length == 0) cm.current_word = cm.current_word.slice(0, -1);
+    
+    // while (true){
+    //   let nl = sug.map(k=>k.slice(cm.current_word.length, cm.current_word.length + 1))
+    //   if (nl.some(k => k != nl[0])) break;
+    //   cm.current_word += nl[0];
+    // }
+    print("command_update", cm)
+    return cm;
+  }, true)
 
 })
 
-put(bar)
 
-bar.focus()
+{
 
+  let output = div()
+
+  command.subscribe(cm=>{
+    if (!done(cm)) return;
+    let [T, S, F] = compile(cm.words.map(c=>Lang[c]))
+    output.innerHTML = "";
+    output.append(...fields.map(f => viewdata(T, S, F(f))))
+  })
+
+  print("render")
+  let R = "isred right x".split(" ").map(c=>Lang[c])
+
+  let [T, S, F] = compile(R)
+
+
+  let row = (title: string, ...data: any[]) => tr(td(title), td(
+    {style:{
+      display: "flex",
+      "flex-wrap": "wrap",
+    }},
+    data))
+
+  put(table(
+    row("input", ...fields.map(f => view_matrix("block", f))),
+    row("formula", bar),
+    row("output", output),
+    row("expect:", ...fields.map(f => viewdata(T, S, F(f)))),
+  ))
+
+
+}
