@@ -250,8 +250,7 @@ const view_rule = (rule: Fun[]) => {
 const is_color = (x: number): Fun => alufun(1, `($0 == ${x})`, "color", "boolean")
 view_rule([SRC])
 
-let bar = div(
-  {
+let bar = div({
     tabIndex: 0,
     style: {
       display: "flex", flexDirection: "row",
@@ -259,7 +258,6 @@ let bar = div(
     }
   })
 
-bar.focus()
 
 
 
@@ -386,7 +384,6 @@ let view_bar = (cm: CMD) =>{
     range(n).forEach(()=>push("..."))
     push(")")
   })
-
 }
 
 
@@ -425,39 +422,34 @@ bar.addEventListener("keydown", (e)=>{
     let don = done(cm)
 
     const add_word = (w: string) =>{
-      print("add_word", w, cm)
       cm.words = don ? [w, ...cm.words] : [...cm.words, w];
       cm.current_word = "";
-      print("add_word", cm)
     }
-    print("key", e.key)
 
     if (e.key.length == 1){
-      print("key", e.key)
       if (e.key == " "){
         add_word(sug[0])
       }else{
         cm.current_word += e.key;
       }
-      print(cm)
     }
 
     sug = suggestions(cm)
 
-    print(sug)
-    
     if (sug.length == 1){
       add_word(sug[0])
     }
     
-    if (sug.length == 0) cm.current_word = cm.current_word.slice(0, -1);
-    
-    // while (true){
-    //   let nl = sug.map(k=>k.slice(cm.current_word.length, cm.current_word.length + 1))
-    //   if (nl.some(k => k != nl[0])) break;
-    //   cm.current_word += nl[0];
-    // }
-    print("command_update", cm)
+    else if (sug.length == 0) cm.current_word = cm.current_word.slice(0, -1);
+    else {
+
+      while (true){
+        let nl = sug.map(k=>k.slice(cm.current_word.length, cm.current_word.length + 1))
+        print("nl", nl)
+        if (nl.some(k => k != nl[0])) break;
+        cm.current_word += nl[0];
+      }
+    }
     return cm;
   }, true)
 
@@ -466,27 +458,30 @@ bar.addEventListener("keydown", (e)=>{
 
 {
 
-  let output = div()
-
-  command.subscribe(cm=>{
-    if (!done(cm)) return;
-    let [T, S, F] = compile(cm.words.map(c=>Lang[c]))
-    output.innerHTML = "";
-    output.append(...fields.map(f => viewdata(T, S, F(f))))
-  })
-
   print("render")
   let R = "isred right x".split(" ").map(c=>Lang[c])
-
+  
   let [T, S, F] = compile(R)
-
-
+  
+  
   let row = (title: string, ...data: any[]) => tr(td(title), td(
     {style:{
       display: "flex",
       "flex-wrap": "wrap",
     }},
     data))
+  let output = div();
+  command.map(cm=>{
+    if (!done(cm)) return;
+    let [T, S, F] = compile(cm.words.map(c=>Lang[c]))
+    output.innerHTML = "";
+    output.append(div(
+      {style: {display: "flex", "flex-wrap": "wrap"}},
+      fields.map(f => div(
+        {style: {width: `calc(${blockSize} * 4)`}},
+        viewdata(T, S, F(f))))
+    ))
+  })
 
   put(table(
     row("input", ...fields.map(f => view_matrix("block", f))),
@@ -494,6 +489,8 @@ bar.addEventListener("keydown", (e)=>{
     row("output", output),
     row("expect:", ...fields.map(f => viewdata(T, S, F(f)))),
   ))
+
+  bar.focus()
 
 
 }
