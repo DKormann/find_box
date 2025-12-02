@@ -95,8 +95,19 @@ export const tr:HTMLGenerator<HTMLTableRowElement> = newHtmlGenerator("tr")
 export const td:HTMLGenerator<HTMLTableCellElement> = newHtmlGenerator("td")
 export const th:HTMLGenerator<HTMLTableCellElement> = newHtmlGenerator("th")
 
-const background = "var(--background)";
-const color = "var(--color)";
+export const style = (...rules: Record<string, string>[]) => {
+  return {style: Object.assign({}, ...rules)}
+}
+
+export const margin = (value: string) => style({margin: value})
+export const padding = (value: string) => style({padding: value})
+export const border = (value: string) => style({border: value})
+export const borderRadius = (value: string) => style({borderRadius: value})
+export const width = (value: string) => style({width: value})
+export const height = (value: string) => style({height: value})
+export const display = (value: string) => style({display: value})
+export const color = (value: string = "var(--color)") => style({color: value})
+export const background = (value: string = "var(--background)") => style({background: value})
 
 export const input:HTMLGenerator<HTMLInputElement> = (...cs)=>{
 
