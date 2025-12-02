@@ -70,7 +70,7 @@ let app = (f: Fun, x: Tensor[]) : Tensor => {
   let data : Atom[] = [];
 
   if (f.tag == "alu"){
-    let expect = f.expect == null ? x.filter(x=>x.type != "block")[0].type : f.expect;
+    let expect = f.expect == null ? [...x.filter(x=>x.type != "block"),{type:"block"} ][0].type as ScalarType : f.expect;
     x = x.map(x => cast_scalar(x.type, expect, x))
     if (f.alu == "$0") return x[0];
     let mat = x.some(x=>x.data.length > 2)
@@ -78,7 +78,6 @@ let app = (f: Fun, x: Tensor[]) : Tensor => {
     else data = range(mat ? mat_size : 1).map(i=> ({tag: "ALUOp", alu: f.alu, srcs: x.map(x=>x.data[x.data.length > 1 ? i : 0])}))
     type = f.result;
   }
-  // if (f.tag == "reduce") data = [x[0].data.slice(1).reduce((acc,x)=> alu([acc, x], f.alu), x[0].data[0])]
   if (f.tag == "move") data = range(mat_size).map(f.move).map(i=> (i > 0 )? x[0].data[i] : const_(0))
   return {tag: "tensor", data, type}
 }
