@@ -1,12 +1,8 @@
 import { print } from "./html";
 
-
 let mat_size = 16;
 
-
 export type ScalarType = "block" | "color" | "number" | "boolean"
-
-
 export const range = (i:number) => Array.from({length: i}, (_, k) => k);
 export const randint = (min: number, max: number) => Math.floor(Math.random() * (max - min) + 0.99) + min
 export const randchoice = <T>(arr: T[]) => arr[randint(0, arr.length-1)]
@@ -19,104 +15,56 @@ type Tensor = {
   type: ScalarType
 }
 
-export type Fun
-= { tag: "alu", reduce: boolean, alu: string, expect: ScalarType | null, result: ScalarType, arity: number}
-| { tag: "move", move: (i: number) => number }
-| Tensor
-
-
-const SRC: Fun = {
-  tag: "tensor",
-  data: range(mat_size).map(i=> ({tag: "source", index: i})),
-  type: "block"
-}
-
-
-const cast_scalar = (X: ScalarType, Y: ScalarType, t: Tensor): Tensor | null=> {
-
-  if (X == Y || X == "boolean") return t;
-  if (Y == "block") return null;
-
-  let alu: string =
-    Y == "boolean" ? "($0 ? 1 : 0)" :
-    X == "number" ? (
-      Y == "color" ? "$0 > 3 ? 4 : $0" :
-      "ERR"
-    ) :
-    X == "color" ? (
-      Y == "number" ? "$0" :
-      "ERR"
-    ) :
-    X == "block" ? (
-      Y == "number" ? "($0 == 0 ? 0 : (($0+2) / 3) | 0)" :
-      Y == "color" ? "($0 == 0 ? 0 : ($0-1) % 3 + 1)" :
-      "ERR"
-    ) :
-    "ERR";
-
-  return { tag: "tensor", type: Y, data: t.data.map(x=>({tag: "ALUOp", alu, srcs: [x]}))}
-}
-
-
-const alu = (srcs: Atom[], alu: string): Atom => ({tag: "ALUOp", alu, srcs})
+export type Fun = ((...x:Tensor[]) => Tensor | null)
+const SRC: Fun = () => ({tag: "tensor", data: range(mat_size).map(i=> ({tag: "source", index: i})), type: "block"})
 const const_ = (x: number): Atom => ({tag: "ALUOp", alu: x.toString(), srcs: []})
 
+const scalar = (x: number, type: ScalarType) : Fun => ()=> tensor([mkalu(x.toString(), [])], type)
+const mkalu = (alu: string, srcs: Atom[]): Atom => ({tag: "ALUOp", alu, srcs})
+const atom0 = mkalu("0", [])
 
-const scalar = (x: number, type: ScalarType): Tensor => ({tag: "tensor", type, data: [const_(x)]})
+const tensor = (data: Atom[], type: ScalarType): Tensor => ({tag: "tensor", data, type})
+const aluunary = (alu: string, type: ScalarType): Fun => (a:Tensor) => a.type != type ? null : tensor([mkalu(alu, [a.data[0]])], type)
 
-let app = (f: Fun, x: Tensor[]) : Tensor => {
-  if (f.tag == "tensor") return f
-  let type = x[0].type;
-  let data : Atom[] = [];
-
-  if (f.tag == "alu"){
-    let expect = f.expect == null ? [...x.filter(x=>x.type != "block"),{type:"block"} ][0].type as ScalarType : f.expect;
-    x = x.map(x => cast_scalar(x.type, expect, x))
-    if (f.alu == "$0") return x[0];
-    let mat = x.some(x=>x.data.length > 2)
-    if (f.reduce) data = [x[0].data.slice(1).reduce((acc,x)=> alu([acc, x], f.alu), x[0].data[0])]
-    else data = range(mat ? mat_size : 1).map(i=> ({tag: "ALUOp", alu: f.alu, srcs: x.map(x=>x.data[x.data.length > 1 ? i : 0])}))
-    type = f.result;
-  }
-  if (f.tag == "move") data = range(mat_size).map(f.move).map(i=> (i > 0 )? x[0].data[i] : const_(0))
-  return {tag: "tensor", data, type}
+const cast_scalar = (X: Tensor, T: ScalarType): Tensor | null => {
+  if (X.type == T) return X;
+  if (T == "block") return null;
+  if (T == "boolean") return aluunary("($0 ? 1 : 0)", "boolean")(X);
+  if (X.type == "number" && T == "color") return aluunary("($0 > 3 ? 4 : $0)", "color")(X);
+  if (X.type == "color" && T == "number") return aluunary("($0 == 0 ? 0 : ($0-1) % 3 + 1)", "number")(X);
+  if (X.type == "block" && T == "number") return aluunary("($0 == 0 ? 0 : (($0+2) / 3) | 0)", "number")(X);
+  if (X.type == "block" && T == "color") return aluunary("($0 == 0 ? 0 : ($0-1) % 3 + 1)", "color")(X);
 }
 
+const alubin = (alu: string, type: ScalarType | null): Fun => (a:Tensor, b:Tensor) => 
+  tensor(range(Math.max(a.data.length, b.data.length)).map(i=>(mkalu(alu, [a.data[i % a.data.length], b.data[i % b.data.length]]))), type || a.type)
 
-const alufun = (arity: number, alu : string, ...T: ScalarType[]) : Fun => {
-  if (T.length == 0) T = ["number"];
-  if (T.length == 1) T = [T[0], T[0]];
-  return {
-    tag: "alu",
-    reduce: false,
-    alu,
-    expect: T[0], result: T[1],
-    arity
-  }
-}
+const reduce = (alu: string, type: ScalarType): Fun => (a:Tensor) => a.data.length != mat_size ? null :
+  tensor([a.data.slice(1).reduce((acc,x)=> mkalu(alu, [acc, x]), a.data[0])], type)
 
-const redfun = (alu: string, result: ScalarType) : Fun => ({tag: "alu", reduce: true, alu, expect: result, result, arity: 1})
+const move = (f: (i:number) => number) : Fun => (a:Tensor) => a.data.length != mat_size ? null :
+  tensor(range(mat_size).map(i=> i == -1 ? atom0 : a.data[i]), a.type)
 
+const eq: Fun = (a:Tensor, b:Tensor) => a.type != b.type ? null : alubin("($0 == $1)", "boolean")(a, b)
+const add: Fun = (a:Tensor, b:Tensor) => a.type != "number" || b.type != "number" ? null : alubin("($0 + $1)", "number")(a, b)
+const and: Fun = (a:Tensor, b:Tensor) => a.type != "boolean" || b.type != "boolean" ? null : alubin("($0 && $1)", "boolean")(a, b)
+const sum: Fun = (a:Tensor) => a.type != "number" ? null : reduce("($0 + $1)", "number")(a)
+const any: Fun = (a:Tensor) => reduce("($0 || $1)", "boolean")(a)
 
-export const arity = (f: Fun) => f.tag == "alu" ? f.arity : f.tag == "tensor" ? 0 : 1;
-
-const move_dir = (dx: number, dy: number) : Fun => ({tag: "move", move: ((i:number)=>{
-  let x = i % 4 + dx;
-  let y = Math.floor(i / 4) + dy;
-  if (x < 0 || x > 3 || y < 0 || y > 3) return -1;
-  return x + y * 4;
-})})
-
+const move_dir = (dx: number, dy: number) : Fun => (a:Tensor) => move((i:number)=>{
+  let check = (x:number)=> x>=0 && x<4;
+  i += dx + dy*4;
+  return (check(i%4) && check(Math.floor(i/4))) ? i : -1;
+})(a)
 
 
 const chain = (...fs: Fun[]) : Tensor => {
-  let go = () : Tensor => {
+  let go = () : Tensor =>{
     let f = fs.shift();
-    if (f.tag == "tensor") return f;
     if (f == undefined) throw new Error("No function");
-    let arity = f.tag == "alu" ? f.arity : 1;
-    let x = range(arity).map(_ => go());
-    return app(f, x);
+    if (f.length == 0) return f();
+    let x = range(f.length).map(_ => go());
+    return f(...x);
   }
   return go();
 }
@@ -160,31 +108,25 @@ export const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int
     }
     return c;
   }
-
   let ret = t.data.map(raster).join(",\n");
   code = code + `return [${ret}];`;
-
   return [t.type, t.data.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
-
-const is_color = (x: number): Fun => alufun(1, `($0 == ${x})`, "color", "boolean")
-
+const is_color = (x: number): Fun => (a:Tensor) => eq( cast_scalar(a, "color"), scalar(x, "color")())
 
 export let Core : Record<string, Fun> = {
 
-  number: alufun(1, "$0", "number"),
+  number: (a:Tensor) => cast_scalar(a, "number"),
+  color: (a:Tensor) => cast_scalar(a, "color"),
+
   isred: is_color(1),
   isgreen: is_color(2),
   isblue: is_color(3),
-  any: redfun("($0 || $1)", "boolean"),
-  sum: redfun("($0 + $1)", "number"),
-  not: alufun(1, "(!$0)", "boolean"),
-  
-  and: alufun(2, "($0 && $1)", "boolean"),
-  eq: alufun(2, "($0 == $1)", null, "boolean"),
-  add: alufun(2, "($0 + $1)", "number", "number"),
+  any, sum,
+  not: (a:Tensor) => a.type != "boolean" ? null : aluunary("(!$0)", "boolean")(a),
 
+  and, eq, add,
   "0": scalar(0, "number"),
   "1": scalar(1, "number"),
   "2": scalar(2, "number"),
@@ -192,29 +134,20 @@ export let Core : Record<string, Fun> = {
   x: SRC,
 }
 
-
+const or = (a:Tensor, b:Tensor) => a.type != "boolean" || b.type != "boolean" ? null : alubin("($0 || $1)", "boolean")(a, b)
+const right = move_dir(1, 0)
+const up = move_dir(0, -1)
+const left = move_dir(-1, 0)
+const down = move_dir(0, 1)
 export let Lang : Record<string, Fun> = {
   ...Core,
-
-  right: move_dir(1, 0),
-  up: move_dir(0, -1),
-
-
-  left: move_dir(-1, 0),
-  down: move_dir(0, 1),
-
-  color: alufun(1, "$0", "color"),
-  block: alufun(2, "$0 == 0 ? 0 : ($0*3)-2 + $1 -1", "number", "block"),
-  asblock: alufun(1, "$0" , "block"),
-  all: redfun("($0 && $1)", "boolean"),
-  product: redfun("($0 * $1 | 0)", "number"),
-  or: alufun(2, "($0 || $1)", "boolean"),
-  mul: alufun(2, "$0 * $1", "number", "number"),
+  right, up, left, down,
+  next: (x:Tensor) => or(or(right(x), up(x)), or(left(x), down(x))),
+  block: (num:Tensor, color:Tensor) => (num.type != "number" || color.type != "color") ? null : alubin("($0 == 0 ? 0 : ($0*3)-2 + $1 -1)", "block")(num, color),
   red : scalar(1, "color"),
   green : scalar(2, "color"),
   blue : scalar(3, "color"),
 }
-
 
 {
 
@@ -226,12 +159,10 @@ export let Lang : Record<string, Fun> = {
   const bench = ()=>{
 
     const IT = 200000;
-
     let st = performance.now();
     for (let i = 0; i < IT; i++) {
       F(fields[i % fields.length])
     }
-    
     
     let et = performance.now();
     let dt = et - st;
