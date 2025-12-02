@@ -248,7 +248,10 @@ const full_view = (x:any): HTMLElement => {
         let run = ()=>{
           let args = Array.from(inputs.childNodes).map((inp: HTMLInputElement)=>inp.value);
           res.innerHTML = "";
-          res.append(p(x(...args.map(eval))))
+          let ret= x(...args.map(eval))
+          print("run result:", ret)
+
+          res.append(preview(ret), p())
         }
 
         
@@ -282,7 +285,7 @@ const full_view = (x:any): HTMLElement => {
 
 }
 
-const termline = (content): HTMLElement => {
+const termline = (tag:string, content): HTMLElement => {
   return p(
 
     span(
@@ -296,7 +299,7 @@ const termline = (content): HTMLElement => {
 
         }
       },
-      `out[${out.length-1}]: `,
+      tag
     ),
     
     
@@ -306,7 +309,7 @@ const termline = (content): HTMLElement => {
 let logger = null;
 let terminal_input = null;
 
-let hist: any[] = [];
+
 
 export const clear_terminal = () => {
   logger.innerHTML = ""
@@ -314,108 +317,124 @@ export const clear_terminal = () => {
 
 
 let out : any[] = [];
+let hist = new Stored("terminal_hist", []);
+let inp : string[] = [];
+
+hist.subscribe(h=>inp = h);
+
+
+
+const create_terminal = ()=>{
+
+  let terminal = div({style: {
+    position: "fixed",
+    top: "0",
+    right: "0",
+    width: "50%",
+    height: "100%",
+    border: "1px solid #888",
+    borderRadius: "1em",
+    background,
+    overflowY: "scroll",
+  }})
+
+  let sidemove = false;
+  let sidebar = div({
+    style: {
+      height: "100%",
+      width: "1em",
+      position: "absolute",
+      left: "0em",
+      top: "0em",
+      cursor: "ew-resize",
+    },
+  })
+
+  sidebar.addEventListener("mousedown", (e)=>{
+    sidemove = true;
+    e.preventDefault()
+  })
+
+  let terminal_width = new Stored("terminal_width", 50);
+  terminal_width.subscribe((value)=>{
+    terminal.style.width = Math.max(2,value) + "%";
+  })
+
+  document.addEventListener("mousemove", (e)=>{
+    if (sidemove){
+      terminal_width.update(v=> (window.innerWidth - e.clientX) / window.innerWidth * 100);
+      e.preventDefault()
+    }
+  })
+  document.addEventListener("mouseup", (e)=> sidemove = false)
+
+
+  let content = div({style: {
+    height: "100%",
+    width: "100%",
+    overflowY: "scroll",
+  }})
+
+  terminal.append(sidebar,content)    
+  let showterm = new Stored("showterm", false)
+  showterm.subscribe((value)=> terminal.style.display = value ? "block" : "none")
+
+  document.addEventListener("keydown", (e)=>{
+    if (e.metaKey){
+
+      if (e.key == "b"){
+        showterm.update(v=>!v);
+        e.preventDefault()
+      }
+      if (e.key == "l" || e.key == "k"){
+        logger.innerHTML = ""
+        e.preventDefault()
+      }
+    }
+  })
+
+  body.appendChild(terminal)
+  logger = div()
+
+  let hist_pos = 0;
+
+  terminal_input = input(
+    {style: {all: "unset", width: "100%", border: "none", padding: "0.5em"},
+    placeholder: ">>>",
+    onkeydown: (e)=>{
+      if (e.key == "Enter"){
+        let val = terminal_input.value.trim();
+        if (val == "") return;
+        try{
+          hist.update(h=>[...h, val].slice(-100));
+          logger.append(termline(`inp[${inp.length-1}]: `, val))
+          print(eval(val))
+        }
+        catch(e){ print(e.message)}
+        terminal_input.value = ""
+        terminal_input.focus()
+        terminal_input.scrollIntoView({behavior: "instant", block: "end", inline: "nearest"})
+      }
+      if (e.key == "ArrowUp"){
+        hist_pos -= 1;
+        terminal_input.value = inp[Math.max(0, inp.length + hist_pos)];
+      }else{
+        hist_pos = 0;
+      }
+    }
+  })
+
+  content.append(logger, terminal_input)
+}
+
 
 export const print = (...x:any[])=>{
 
   out.push(...x);
 
-  hist.push(...x);
 
-
-  if (logger == null){
-
-    let terminal = div({style: {
-      position: "fixed",
-      top: "0",
-      right: "0",
-      width: "50%",
-      height: "100%",
-      border: "1px solid #888",
-      borderRadius: "1em",
-      background,
-      overflowY: "scroll",
-    }})
-
-    let sidemove = false;
-    let sidebar = div({
-      style: {
-        height: "100%",
-        width: "1em",
-        position: "absolute",
-        left: "0em",
-        top: "0em",
-        cursor: "ew-resize",
-      },
-    })
-
-    sidebar.addEventListener("mousedown", (e)=>{
-      sidemove = true;
-      e.preventDefault()
-    })
-
-    let terminal_width = new Stored("terminal_width", 50);
-    terminal_width.subscribe((value)=>{
-      terminal.style.width = Math.max(2,value) + "%";
-    })
-
-    document.addEventListener("mousemove", (e)=>{
-      if (sidemove){
-        terminal_width.update(v=> (window.innerWidth - e.clientX) / window.innerWidth * 100);
-        e.preventDefault()
-      }
-    })
-    document.addEventListener("mouseup", (e)=> sidemove = false)
-
-
-    let content = div({style: {
-      height: "100%",
-      width: "100%",
-      overflowY: "scroll",
-    }})
-
-    terminal.append(sidebar,content)    
-    let showterm = new Stored("showterm", false)
-    showterm.subscribe((value)=> terminal.style.display = value ? "block" : "none")
-
-    document.addEventListener("keydown", (e)=>{
-      if (e.metaKey){
-
-        if (e.key == "b"){
-          showterm.update(v=>!v);
-          e.preventDefault()
-        }
-        if (e.key == "l" || e.key == "k"){
-          logger.innerHTML = ""
-          e.preventDefault()
-        }
-      }
-    })
-
-    body.appendChild(terminal)
-    logger = div()
-
-    terminal_input = input(
-      {style: {all: "unset", width: "100%", border: "none", padding: "0.5em"},
-      placeholder: ">>>",
-      onkeydown: (e)=>{
-        if (e.key == "Enter"){
-          if (terminal_input.value.trim() == "") return;
-          try{
-            print(terminal_input.value)
-            print(eval(terminal_input.value))
-          }
-          catch(e){ print(e.message)}
-          terminal_input.value = ""
-          terminal_input.focus()
-          terminal_input.scrollIntoView({behavior: "instant", block: "end", inline: "nearest"})
-        }
-      }
-    })
-
-    content.append(logger, terminal_input)
-  }
-
-  const tl = termline(x.map(preview));
+  if (logger == null)create_terminal();
+  const tl = termline(`out[${out.length-1}]: `, x.map(preview));
 
   logger.appendChild(tl)
   terminal_input.scrollIntoView({ block: "end"})

@@ -1,7 +1,9 @@
 import { button, clear_terminal, div, h2, html, input, p, popup, print, span, table, td, tr } from "./html"
 import { Stored, Writable } from "./store";
-import { arity, compile, Core, Fun, Lang, randint, range, ScalarType } from "./tensor";
+import {compile, Core, Fun, Lang, randint, range, ScalarType } from "./tensor";
 
+
+print("game")
 
 
 const blockSize = "40px";
@@ -97,10 +99,10 @@ let command = new Writable<CMD>({words: [], current_word: ""})
 
 
 let suggestions = (cmd: CMD) =>
-  (done(cmd) ?options.filter(k=>arity(Lang[k]) > 0) :options)
+  (done(cmd) ?options.filter(k=>Lang[k].length > 0) :options)
   .filter(k =>k.startsWith(cmd.current_word))
 
-let done = (cmd: CMD) => cmd.words.length == cmd.words.reduce((a,b)=>a+arity(Lang[b]), 0) + 1
+let done = (cmd: CMD) => cmd.words.length == cmd.words.reduce((a,b)=>a+Lang[b].length, 0) + 1
 
 
 export const blob = (word: string, style?: Partial<CSSStyleDeclaration>) => span(word, { style: {margin: "0 0.1em", padding: "0.2em", ...style}})
@@ -139,8 +141,8 @@ let view_bar = (cm: CMD) =>{
   words.forEach(c=>{
     push(c)
     stack[stack.length - 1]--;
-    if (arity(Lang[c]) > 0){
-      stack.push(arity(Lang[c]));
+    if (Lang[c].length > 0){
+      stack.push(Lang[c].length);
       push("(")
     } else {
       while (stack[stack.length - 1] == 0){
@@ -302,7 +304,7 @@ function play(level: number){
 let Funs : Map<Fun, string> = new Map(Object.entries(Core).map(([k, v])=>[v, k]))
 
 let FunSizes = new Map<number, string[]>()
-Funs.forEach((v, k)=>{FunSizes.set(arity(k), [...FunSizes.get(arity(k)) || [], v])})
+Funs.forEach((v, k)=>{FunSizes.set(k.length, [...FunSizes.get(k.length) || [], v])})
 
 const sample_word = (a: number) =>  FunSizes.get(a)[Math.floor(Math.random() * FunSizes.get(a).length)]
 

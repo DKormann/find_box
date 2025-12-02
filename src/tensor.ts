@@ -16,14 +16,11 @@ type Tensor = {
 }
 
 export type Fun = ((...x:Tensor[]) => Tensor | null)
-const SRC: Fun = () => ({tag: "tensor", data: range(mat_size).map(i=> ({tag: "source", index: i})), type: "block"})
-const const_ = (x: number): Atom => ({tag: "ALUOp", alu: x.toString(), srcs: []})
+
+const mkalu = (alu: string, srcs: Atom[]): Atom => ({tag: "ALUOp", alu, srcs})
+const tensor = (data: Atom[], type: ScalarType): Tensor => ({tag: "tensor", data, type})
 
 const scalar = (x: number, type: ScalarType) : Fun => ()=> tensor([mkalu(x.toString(), [])], type)
-const mkalu = (alu: string, srcs: Atom[]): Atom => ({tag: "ALUOp", alu, srcs})
-const atom0 = mkalu("0", [])
-
-const tensor = (data: Atom[], type: ScalarType): Tensor => ({tag: "tensor", data, type})
 const aluunary = (alu: string, type: ScalarType): Fun => (a:Tensor) => a.type != type ? null : tensor([mkalu(alu, [a.data[0]])], type)
 
 const cast_scalar = (X: Tensor, T: ScalarType): Tensor | null => {
@@ -42,8 +39,11 @@ const alubin = (alu: string, type: ScalarType | null): Fun => (a:Tensor, b:Tenso
 const reduce = (alu: string, type: ScalarType): Fun => (a:Tensor) => a.data.length != mat_size ? null :
   tensor([a.data.slice(1).reduce((acc,x)=> mkalu(alu, [acc, x]), a.data[0])], type)
 
+
+
+
 const move = (f: (i:number) => number) : Fun => (a:Tensor) => a.data.length != mat_size ? null :
-  tensor(range(mat_size).map(i=> i == -1 ? atom0 : a.data[i]), a.type)
+  tensor(range(mat_size).map(i=> f(i) == -1 ? mkalu("0", []) : a.data[i]), a.type)
 
 const eq: Fun = (a:Tensor, b:Tensor) => a.type != b.type ? null : alubin("($0 == $1)", "boolean")(a, b)
 const add: Fun = (a:Tensor, b:Tensor) => a.type != "number" || b.type != "number" ? null : alubin("($0 + $1)", "number")(a, b)
@@ -66,11 +66,17 @@ const chain = (...fs: Fun[]) : Tensor => {
     let x = range(f.length).map(_ => go());
     return f(...x);
   }
+
+  print("chain", fs.map(f=>f.length));
   return go();
 }
 
 export const compile = (rule: Fun[]) : [ScalarType, "matrix" | "scalar", (L: Int32Array) => Int32Array] => {
+
+  print("compile", rule.map(f=>f.length));
   let t = chain(...rule);
+
+  print(t)
 
   let lin: Atom[] = [];
   let smap = new Map<string, number>();
@@ -119,19 +125,17 @@ export let Core : Record<string, Fun> = {
 
   number: (a:Tensor) => cast_scalar(a, "number"),
   color: (a:Tensor) => cast_scalar(a, "color"),
-
   isred: is_color(1),
   isgreen: is_color(2),
   isblue: is_color(3),
   any, sum,
   not: (a:Tensor) => a.type != "boolean" ? null : aluunary("(!$0)", "boolean")(a),
-
   and, eq, add,
   "0": scalar(0, "number"),
   "1": scalar(1, "number"),
   "2": scalar(2, "number"),
   "3": scalar(3, "number"),
-  x: SRC,
+  x:() => tensor(range(mat_size).map(i=> ({tag: "source", index: i})), "block"),
 }
 
 const or = (a:Tensor, b:Tensor) => a.type != "boolean" || b.type != "boolean" ? null : alubin("($0 || $1)", "boolean")(a, b)
@@ -143,7 +147,8 @@ export let Lang : Record<string, Fun> = {
   ...Core,
   right, up, left, down,
   next: (x:Tensor) => or(or(right(x), up(x)), or(left(x), down(x))),
-  block: (num:Tensor, color:Tensor) => (num.type != "number" || color.type != "color") ? null : alubin("($0 == 0 ? 0 : ($0*3)-2 + $1 -1)", "block")(num, color),
+  block: (num:Tensor, color:Tensor) => (num.type != "number" || color.type != "color") ? null :
+    alubin("($0 == 0 ? 0 : ($0*3)-2 + $1 -1)", "block")(num, color),
   red : scalar(1, "color"),
   green : scalar(2, "color"),
   blue : scalar(3, "color"),
@@ -152,18 +157,11 @@ export let Lang : Record<string, Fun> = {
 {
 
   let fields = range(10).map(_=>Int32Array.from(range(mat_size).map(_=>randint(0,9))))
-
-  const rule = "not any and color x eq color x right color x".split(" ").map(c=>Lang[c])
-  const [T, S, F] = compile(rule)
-
+  const [T, S, F] = compile("not any and color x eq color x right color x".split(" ").map(c=>Lang[c]))
   const bench = ()=>{
-
     const IT = 200000;
     let st = performance.now();
-    for (let i = 0; i < IT; i++) {
-      F(fields[i % fields.length])
-    }
-    
+    for (let i = 0; i < IT; i++) F(fields[i % fields.length])    
     let et = performance.now();
     let dt = et - st;
     print(`${Math.round(IT / dt)} k rules per second`);
