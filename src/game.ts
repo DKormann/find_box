@@ -1,6 +1,6 @@
 import { button, clear_terminal, div, h2, html, input, p, popup, print, span, table, td, tr } from "./html"
 import { Stored, Writable } from "./store";
-import {compile, Core, Fun, Lang, mat_size, randchoice, randint, range, DataType, Tensor, TensorType, shape, dtype, ShapeType } from "./tensor";
+import {compile, Core, Fun, Lang, mat_size, randchoice, randint, range, DataType, Tensor, TensorType, shape, dtype, ShapeType, check } from "./tensor";
 
 
 print("game")
@@ -102,6 +102,7 @@ let command = new Writable<CMD>({words: [], current_word: ""})
 let suggestions = (cmd: CMD) =>
   (done(cmd) ?options.filter(k=>Lang[k].length > 0) :options)
   .filter(k =>k.startsWith(cmd.current_word))
+  .filter(k => check(print("chec:",[...cmd.words,k]).map(c=>Lang[c])).length > 0)
 
 let done = (cmd: CMD) => cmd.words.length == cmd.words.reduce((a,b)=>a+Lang[b].length, 0) + 1
 
@@ -227,13 +228,7 @@ document.addEventListener("keydown", (e)=>{
 
 })
 
-
-
-
-
 fields = []
-
-
 
 const sample = (t: string) => {
 
@@ -308,67 +303,12 @@ let Funs : Map<Fun, string> = new Map(Object.entries(Core).map(([k, v])=>[v, k])
 let FunSizes = new Map<number, string[]>()
 Funs.forEach((v, k)=>{FunSizes.set(k.length, [...FunSizes.get(k.length) || [], v])})
 
-// const sample_word = (a: number) =>  FunSizes.get(a)[Math.floor(Math.random() * FunSizes.get(a).length)]
-// const dummy_t = (T: DataType, S: "scalar" | "matrix"): Tensor => tensor(range(S=="scalar" ? 1 : mat_size).map(_=>({tag:"source", index:0})), T);
-// const dummys = permute(["number", "color", "boolean", "block"], ["scalar", "matrix"]).map(([t, s])=> dummy_t(t as any, s as any));
-
-
 
 type TypeString = `${DataType}_${"scalar" | "matrix"}`
 
 type CoreName = keyof typeof Core;
 
 const all_tensor = new Map<TypeString, Set<CoreName>>()
-
-// const sample_binary = (ar:number, T: DataType, S: "scalar" | "matrix") : Tensor | null => {
-
-//   let F = randchoice(FunSizes.get(ar))
-//   let options = dummys.filter(x=> Core[F](x) != null).filter(t=>t.type == T && (t.data.length == 1) == (S == "scalar"))
-//   if (options.length == 0) return null;
-//   let xt = randchoice(options);
-
-//   let a1 = randint(1,ar-2)
-//   let a2 = ar - 1 - a1;
-//   let x1 = sample_binary(a1)
-  
-
-// }
-
-// const sample_t = (ar: number, T: DataType, S: "scalar" | "matrix") : Tensor | null => {
-
-
-
-
-
-
-// const sample_tword = (ar:number, T: DataType, S: "scalar" | "matrix") 
-
-// const _sample_rule = (size: number) : string[] => {
-//   if (Math.random() < 0.1) size --;
-//   if (size < 2) return [sample_word(0)];
-//   if (size == 2) return [sample_word(1), sample_word(0)];
-//   if (Math.random() < 0.6){
-//     return [sample_word(1), ..._sample_rule(size -1)]
-//   }
-//   let s1 = randint(1, size-2)
-//   let s2 = size - 1 - s1
-//   return [sample_word(2), ..._sample_rule(s1), ..._sample_rule(s2)]
-// }
-
-
-
-
-// const sample_rule = (size: number) => {
-
-//   let res = ["any", ..._sample_rule(size)]
-//   let [T, S, F] = compile(res.map(w=>Lang[w]))
-//   let y = fields.map(f=>F(f)[0])
-
-//   if (y.some(d=>d != y[0])) {
-//     return res
-//   };
-//   return sample_rule(size)
-// }
 
 let levels = [
 
@@ -410,9 +350,7 @@ levels.forEach((l,i)=>{
 
 export let level = new Stored("level", 0)
 
-
 level.subscribe(play)
-
 
 export const Game = div(
   board,

@@ -1,4 +1,4 @@
-import { print, repr } from "./html";
+import { print, repr, style } from "./html";
 
 export let mat_size = 16;
 
@@ -17,14 +17,14 @@ export type Fun = ((...x:Tensor[]) => Tensor | null)
 const atom = (op: string, ...srcs: Atom[]):Atom => [op, ...srcs]
 
 const fun = (alu: string, type: DataType | null, ...srcs: Tensor[]): Tensor =>{
+  if (srcs.some(s=>s == null)) return null;
   let shp : ShapeType = srcs.some(s=>shape(s) == "matrix") ? "matrix" : "scalar";
   return [`${type}_${shp}`,...range(shp == "matrix" ? mat_size : 1).map(i=>atom(alu, ...srcs.map(([_,...at])=>at[i % at.length] as Atom)))]
 }
 
 const reduce = (def: Atom, alu: string, type: DataType, x: Tensor): Tensor =>{
 
-  if (x == null) return null;
-
+  if (x == null || shape(x) == "scalar") return null;
   let [dt, ...a] = x;
   return [`${type}_scalar`, a.reduce((acc,x)=> atom(alu, acc, x), def)]
 }
@@ -39,7 +39,9 @@ const move = (dx: number, dy: number) : Fun => ([dt, ...a]:Tensor) => {
   ]}
 
 
-const cast = (X: Tensor, T: DataType): Tensor | null =>  (dtype(X) == T) ? X:
+const cast = (X: Tensor, T: DataType): Tensor | null =>
+  X == null ? null :
+  (dtype(X) == T) ? X:
   (T == "block") ? null:
   (T == "boolean") ? fun("($0 ? 1 : 0)", "boolean", X):
   (dtype(X) == "number" && T == "color") ? fun("($0 > 3 ? 4 : $0)", "color", X):
@@ -49,10 +51,12 @@ const cast = (X: Tensor, T: DataType): Tensor | null =>  (dtype(X) == T) ? X:
   null;
 
 
-const eq: Fun = (a:Tensor, b:Tensor) => dtype(a) != dtype(b) ? null : fun("($0 == $1)", "boolean", a, b)
+const eq: Fun = (a:Tensor, b:Tensor) => a == null || b == null || dtype(a) != dtype(b) ? null : fun("($0 == $1)", "boolean", a, b)
 const add: Fun = (a:Tensor, b:Tensor) => dtype(a) == "color" || dtype(b) == "color" ? null : fun("($0 + $1)", "number", cast(a, "number"), cast(b, "number"))
 const mul: Fun = (a:Tensor, b:Tensor) => dtype(a) == "color" || dtype(b) == "color" ? null : fun("($0 * $1)", "number", cast(a, "number"), cast(b, "number"))
 const and: Fun = (a:Tensor, b:Tensor) => fun("($0 && $1)", "boolean", cast(a, "boolean"), cast(b, "boolean"))
+const or = (a:Tensor, b:Tensor) => fun("($0 || $1)", "boolean", cast(a, "boolean"), cast(b, "boolean"))
+
 const eq_poly: Fun = (a:Tensor, b:Tensor) => fun(dtype(a) != dtype(b) ? "0" : "($0 == $1)", "boolean", a, b)
 const sum: Fun = (a:Tensor) => dtype(a) == "color" ? null : reduce(atom("0"), "($0 + $1)", "number", cast(a, "number"))
 const any: Fun = (a:Tensor) => reduce(atom("0"), "($0 || $1)", "boolean", a)
@@ -106,9 +110,10 @@ export const compile = (rule: Fun[]) : [TensorType, (L: Int32Array) => Int32Arra
 
 const is_color = (x: number): Fun => (a:Tensor) => eq( cast(a, "color"), ["color_scalar", atom(x.toString())])
 
+
 export let Core : Record<string, Fun> = {
-  number: (a:Tensor) => cast(a, "number"),
-  color: (a:Tensor) => cast(a, "color"),
+  number: (a:Tensor) => dtype(a) == "number" ? null : cast(a, "number"),
+  color: (a:Tensor) => dtype(a) == "color" ? null : cast(a, "color"),
   isred: is_color(1),
   isgreen: is_color(2),
   isblue: is_color(3),
@@ -122,7 +127,6 @@ export let Core : Record<string, Fun> = {
   x:() => ["block_matrix", ...range(mat_size).map(i=> atom(`L[${i}]`))]
 }
 
-const or = (a:Tensor, b:Tensor) => dtype(a) != "boolean" || dtype(b) != "boolean" ? null : fun("($0 || $1)", "boolean", a, b)
 const right = move(1, 0)
 const up = move(0, -1)
 const left = move(-1, 0)
@@ -157,24 +161,28 @@ const permute = <T,S>(T: T[], S: S[]): [T, S][] => T.map((t:T)=>S.map((s:S)=>[t,
 let tensortypes = permute(["number", "color", "boolean", "block"], ["scalar", "matrix"]).map(([t, s])=>`${t}_${s}`) as TensorType[];
 
 
-const check = (rule: (Fun | "*")[]): TensorType[]=>{
+
+
+
+export const check = (rule: (Fun | "*")[]): TensorType[]=>{
   const go = (): TensorType[] => {
     let f = rule.shift();
     if (f == undefined) return tensortypes;
     if (f == "*") return tensortypes;
-
     if (f.length == 0) return [(f())[0]];
-
     let res : TensorType[];
     if (f.length == 1) res =
-      go().map((t:TensorType)=> f([t])).filter(r=>r != null).map(r=>r[0]);
+      print("arg",go()).map((t:TensorType)=> f([t]))
+      .filter(r=>r != null)
+      .map(r=>r[0]);
     if (f.length == 2){
-      res = go().map(t1=>go().map(t2=> f([t1], [t2])).filter(r=>r != null).map(r=>r[0])).flat()
+      let [t1, t2] = [go(), go()];
+      res = t1.map(t1=>t2.map(t2=> f([t1], [t2])).filter(r=>r != null).map(r=>r[0])).flat()
     }
     return Array.from(new Set(res));
   }
   return go();
 }
 
-print("check:",check("up".split(" ").map(c=>c == "*" ? "*" : Lang[c])))
+print("check:",check("sum blue".split(" ").map(c=>c == "*" ? "*" : Lang[c])))
 
