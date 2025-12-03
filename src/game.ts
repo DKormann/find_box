@@ -1,6 +1,6 @@
 import { button, clear_terminal, div, h2, html, input, p, popup, print, span, table, td, tr } from "./html"
 import { Stored, Writable } from "./store";
-import {compile, Core, Fun, Lang, randint, range, ScalarType } from "./tensor";
+import {compile, Core, Fun, Lang, mat_size, randchoice, randint, range, DataType, Tensor } from "./tensor";
 
 
 print("game")
@@ -10,7 +10,7 @@ const blockSize = "40px";
 const colors = ["var(--background)", "red", "green", "#0044FF", "var(--color)"]
 
 
-const view_scalar = (kind: ScalarType, num: number)=>{
+const view_scalar = (kind: DataType, num: number)=>{
   if (num == null) throw new Error("Null scalar");
   return div(
     {
@@ -24,7 +24,7 @@ const view_scalar = (kind: ScalarType, num: number)=>{
     }, kind == "number" ? num : kind == "block" ? (Math.floor((num + 2) / 3)) : kind == "boolean" ? [num == 0 ? "" : "✓"] : "")
 }
 
-const view_matrix = (dtype: ScalarType, data: Int32Array) => {
+const view_matrix = (dtype: DataType, data: Int32Array) => {
     return div({style:{
       display: "flex",
       "flex-wrap": "wrap",
@@ -37,7 +37,7 @@ const view_matrix = (dtype: ScalarType, data: Int32Array) => {
 }
 
 
-const viewdata = (T: ScalarType, S: "scalar" | "matrix", data: Int32Array) => {
+const viewdata = (T: DataType, S: "scalar" | "matrix", data: Int32Array) => {
   if (S == "scalar") return div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, data[0]));
   else return view_matrix(T, data);
 }
@@ -259,12 +259,14 @@ let board = div()
 
 
 function play(level: number){
+  print("play")
+  print(levels[level])
   let code = levels[level]();
   board.innerHTML = "";
   board.append(h2(`level ${level+1}`))
   let R = code.split(" ").map(c=>Lang[c])
-  let view_boxes = (T: ScalarType, S: "scalar" | "matrix", D: Int32Array[]) :HTMLTableCellElement[] =>  D.map(d => td(viewdata(T, S, d)))
-  let view_fun = (T: ScalarType, S: "scalar" | "matrix", F: (L: Int32Array) => Int32Array) :HTMLTableCellElement[] => view_boxes(T, S, fields.map(f => F(f)))
+  let view_boxes = (T: DataType, S: "scalar" | "matrix", D: Int32Array[]) :HTMLTableCellElement[] =>  D.map(d => td(viewdata(T, S, d)))
+  let view_fun = (T: DataType, S: "scalar" | "matrix", F: (L: Int32Array) => Int32Array) :HTMLTableCellElement[] => view_boxes(T, S, fields.map(f => F(f)))
   let row = (title: string, ...data: any[]) => tr(td(title), ...data)
 
   let row_promise = (title: string, promise: Writable<HTMLTableCellElement[]>) => {
@@ -306,36 +308,70 @@ let Funs : Map<Fun, string> = new Map(Object.entries(Core).map(([k, v])=>[v, k])
 let FunSizes = new Map<number, string[]>()
 Funs.forEach((v, k)=>{FunSizes.set(k.length, [...FunSizes.get(k.length) || [], v])})
 
-const sample_word = (a: number) =>  FunSizes.get(a)[Math.floor(Math.random() * FunSizes.get(a).length)]
-
-const _sample_rule = (size: number) : string[] => {
+// const sample_word = (a: number) =>  FunSizes.get(a)[Math.floor(Math.random() * FunSizes.get(a).length)]
 
 
-  if (Math.random() < 0.1) size --;
-  if (size < 2) return [sample_word(0)];
-  if (size == 2) return [sample_word(1), sample_word(0)];
-  if (Math.random() < 0.6){
-    return [sample_word(1), ..._sample_rule(size -1)]
-  }
-  let s1 = randint(1, size-2)
-  let s2 = size - 1 - s1
-  return [sample_word(2), ..._sample_rule(s1), ..._sample_rule(s2)]
-}
+// const dummy_t = (T: DataType, S: "scalar" | "matrix"): Tensor => tensor(range(S=="scalar" ? 1 : mat_size).map(_=>({tag:"source", index:0})), T);
+const permute = <T,S>(T: T[], S: S[]): [T, S][] => T.map((t:T)=>S.map((s:S)=>[t, s] as [T, S])).flat();
+// const dummys = permute(["number", "color", "boolean", "block"], ["scalar", "matrix"]).map(([t, s])=> dummy_t(t as any, s as any));
 
 
-const sample_rule = (size: number) => {
 
-  let res = ["any", ..._sample_rule(size)]
-  let [T, S, F] = compile(res.map(w=>Lang[w]))
-  let y = fields.map(f=>F(f)[0])
+type TypeString = `${DataType}_${"scalar" | "matrix"}`
 
-  if (y.some(d=>d != y[0])) {
-    return res
-  };
+type CoreName = keyof typeof Core;
+
+const all_tensor = new Map<TypeString, Set<CoreName>>()
+
+// const sample_binary = (ar:number, T: DataType, S: "scalar" | "matrix") : Tensor | null => {
+
+//   let F = randchoice(FunSizes.get(ar))
+//   let options = dummys.filter(x=> Core[F](x) != null).filter(t=>t.type == T && (t.data.length == 1) == (S == "scalar"))
+//   if (options.length == 0) return null;
+//   let xt = randchoice(options);
+
+//   let a1 = randint(1,ar-2)
+//   let a2 = ar - 1 - a1;
+//   let x1 = sample_binary(a1)
   
 
-  return sample_rule(size)
-}
+// }
+
+// const sample_t = (ar: number, T: DataType, S: "scalar" | "matrix") : Tensor | null => {
+
+
+
+
+
+
+// const sample_tword = (ar:number, T: DataType, S: "scalar" | "matrix") 
+
+// const _sample_rule = (size: number) : string[] => {
+//   if (Math.random() < 0.1) size --;
+//   if (size < 2) return [sample_word(0)];
+//   if (size == 2) return [sample_word(1), sample_word(0)];
+//   if (Math.random() < 0.6){
+//     return [sample_word(1), ..._sample_rule(size -1)]
+//   }
+//   let s1 = randint(1, size-2)
+//   let s2 = size - 1 - s1
+//   return [sample_word(2), ..._sample_rule(s1), ..._sample_rule(s2)]
+// }
+
+
+
+
+// const sample_rule = (size: number) => {
+
+//   let res = ["any", ..._sample_rule(size)]
+//   let [T, S, F] = compile(res.map(w=>Lang[w]))
+//   let y = fields.map(f=>F(f)[0])
+
+//   if (y.some(d=>d != y[0])) {
+//     return res
+//   };
+//   return sample_rule(size)
+// }
 
 let levels = [
 
@@ -358,7 +394,7 @@ let levels = [
   ()=>`any or eq ${sample("color")} color x eq ${sample("number")} number x`,
   ()=>`any and x eq number x ${sample("number")}`,
   ()=>`any and x ${sample("direction")} x`,
-  ()=>sample_rule(6).join(" "),
+  // ()=>sample_rule(6).join(" "),
 ]
 
 

@@ -189,6 +189,8 @@ const body = document.body;
 
 const typ = (x:any): string => {
   if (x instanceof Array) return "array"
+  if (x == null) return "null"
+  if (x == undefined) return "undefined"
   else if (x instanceof Function) return "function"
   else if (x instanceof HTMLElement) return "htmlElement"
   else if (x instanceof Object) return "object"
@@ -334,8 +336,10 @@ const create_terminal = ()=>{
     height: "100%",
     border: "1px solid #888",
     borderRadius: "1em",
-    background,
+    background : "var(--background)",
     overflowY: "scroll",
+    zIndex: "1000",
+
   }})
 
   let sidemove = false;
@@ -410,8 +414,14 @@ const create_terminal = ()=>{
           logger.append(termline(`inp[${inp.length-1}]: `, val))
           print(eval(val))
         }
-        catch(e){ print(e.message)}
-        terminal_input.value = ""
+        catch(e){
+          logger.append(termline("error:", e.message))
+          throw e;
+        }
+        finally{
+          terminal_input.value = ""
+        }
+
         terminal_input.focus()
         terminal_input.scrollIntoView({behavior: "instant", block: "end", inline: "nearest"})
       }
@@ -439,6 +449,8 @@ export const print = (...x:any[])=>{
   logger.appendChild(tl)
   terminal_input.scrollIntoView({ block: "end"})
 }
+
+
 
 
 
