@@ -193,7 +193,11 @@ const typ = (x:any): string => {
   if (x == undefined) return "undefined"
   else if (x instanceof Function) return "function"
   else if (x instanceof HTMLElement) return "htmlElement"
-  else if (x instanceof Object) return "object"
+
+  else if (x instanceof Object) {
+    let keys = Object.keys(x);
+    // if (keys.length == 2 && keys.includes("tag") && keys.includes("args")) return "repr";
+    return "object"}
   else return typeof x
 }
 
@@ -214,6 +218,7 @@ const preview = (x:any) : HTMLElement=> {
   t == "function" ? x.toString() :
   t == "htmlElement" ? (x.tagName + x.textContent) :
   t == "object" ? Object.entries(x).slice(0,3).map(([key, value])=>key + ": " + String(value)).join(", ") :
+  // t == "repr" ? `${x.tag}(${Object.entries(x.args).map(([key, value])=>key + " = " + String(value)).join(", ")})` :
   String(x)
 
   if (t != "string") inner = inner.replaceAll("\n", "")
@@ -241,6 +246,7 @@ const full_view = (x:any): HTMLElement => {
     div(
       {style: {paddingLeft: "1em"}},
       t == "array" ? x.map((v:any) => p(preview(v))) :
+      t == "repr" ? p(x.tag + "(" , Object.entries(x.args).map(([key, value])=>p(key + " = ", preview(value))), ")") :
       t == "object" ? Object.entries(x).map(([key, value])=>p(key + ": ", preview(value))) :
       t == "function" ? [p(x.toString()), p(button("run", {onclick: ()=>{
 
@@ -437,17 +443,17 @@ const create_terminal = ()=>{
   content.append(logger, terminal_input)
 }
 
+export type repr = {tag: string, args: Record<string, any>}
 
 export const print = (...x:any[])=>{
 
   out.push(...x);
-
-
   if (logger == null)create_terminal();
   const tl = termline(`out[${out.length-1}]: `, x.map(preview));
 
   logger.appendChild(tl)
   terminal_input.scrollIntoView({ block: "end"})
+  return x[x.length-1];
 }
 
 

@@ -259,7 +259,7 @@ let board = div()
 
 
 function play(level: number){
-  print("play")
+  print("play", level)
   print(levels[level])
   let code = levels[level]();
   board.innerHTML = "";
@@ -283,7 +283,7 @@ function play(level: number){
     if (!done(cm)) return;
     usr_fun.set(cm.words.map(c=>Lang[c]))
   })
-  let check_fun = usr_fun.map(f=>[Lang.all, Lang.eq, ...R, ...f])
+  let check_fun = usr_fun.map(f=>[Lang.all, Lang._eq, ...R, ...f])
 
   let check = check_fun.map(f=>{
     let [T, S, F] = compile(f)
@@ -291,7 +291,6 @@ function play(level: number){
   })
 
   print("comp:",compile(R)[2](fields[0]))
-
   let check_all = check.map(c=>c.every(d=>d.every(b=>b == 1)))
 
   board.append(table(
@@ -299,7 +298,7 @@ function play(level: number){
     row_promise("output", usr_fun.map(f=>view_fun(...compile(f)))),
     row("expect", ...view_fun(...compile(R))),
     row_promise("check", check.map(c=> view_boxes("boolean", "scalar", c))),
-    row("all", td(check_all.map(b=>view_scalar("boolean", Number(b)))))
+    row("all" , td(check_all.map(b=>view_scalar("boolean", Number(b)))))
   ),bar,button("spoiler", {onclick: ()=>popup(div(p(code)))}))
 }
 
@@ -394,15 +393,19 @@ let levels = [
   ()=>`any or eq ${sample("color")} color x eq ${sample("number")} number x`,
   ()=>`any and x eq number x ${sample("number")}`,
   ()=>`any and x ${sample("direction")} x`,
+  ()=>`any and x ${sample("direction")} x`,
   // ()=>sample_rule(6).join(" "),
 ]
 
 
-levels.forEach(l=>{
+levels.forEach((l,i)=>{
+  let r = l();
   try{
-    compile(l().split(" ").map(c=>Lang[c]))
+    compile(r.split(" ").map(c=>Lang[c]))
   }catch(e){
-    print("error",l , e.message)
+    print("error level ",i,r , e.message)
+    print(r.split(" ").map(c=>c + " " + Lang[c].length))
+    throw e;
   }
 })
 
