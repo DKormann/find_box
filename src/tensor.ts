@@ -3,50 +3,61 @@ import { print, repr } from "./html";
 export let mat_size = 16;
 
 export type DataType = "block" | "color" | "number" | "boolean"
-export type TensorShape = "scalar" | "matrix"
-export type TensorType = `${DataType}_${TensorShape}`
+export type ShapeType = "scalar" | "matrix"
+export type TensorType = `${DataType}_${ShapeType}`
 export const range = (i:number) => Array.from({length: i}, (_, k) => k);
 export const randint = (min: number, max: number) => Math.floor(Math.random() * (max - min) + 0.99) + min
 export const randchoice = <T>(arr: T[]) => arr[randint(0, arr.length-1)]
 
 export type Atom = [string, ...Atom[]];
-export type Tensor = [DataType, ...Atom[]]
+export type Tensor = [TensorType, ...Atom[]]
 export const dtype = ([dt, ..._]: Tensor): DataType => dt.split("_")[0] as DataType
+export const shape = ([dt, ..._]: Tensor): ShapeType => dt.split("_")[1] as ShapeType
 export type Fun = ((...x:Tensor[]) => Tensor | null)
 const atom = (op: string, ...srcs: Atom[]):Atom => [op, ...srcs]
 
 const fun = (alu: string, type: DataType | null, ...srcs: Tensor[]): Tensor =>{
-  let as = srcs.map(([t, ...a]:Tensor)=>a);
-  return [type,...range(Math.max(...as.map(as=>as.length))).map(i=>atom(alu, ...as.map(at=>at[i % at.length] as Atom)))]
+  let shp : ShapeType = srcs.some(s=>shape(s) == "matrix") ? "matrix" : "scalar";
+  return [`${type}_${shp}`,...range(shp == "matrix" ? mat_size : 1).map(i=>atom(alu, ...srcs.map(([_,...at])=>at[i % at.length] as Atom)))]
 }
 
-const cast = (X: Tensor, T: DataType): Tensor | null =>  (X[0] == T) ? X:
+const reduce = (def: Atom, alu: string, type: DataType, x: Tensor): Tensor =>{
+
+  if (x == null) return null;
+
+  let [dt, ...a] = x;
+  return [`${type}_scalar`, a.reduce((acc,x)=> atom(alu, acc, x), def)]
+}
+
+
+const move = (dx: number, dy: number) : Fun => ([dt, ...a]:Tensor) => {
+  return shape([dt]) == "scalar" ? null :[dt,
+    ...range(mat_size).map(i=>{
+      let [x,y] = [i%4 + dx, Math.floor(i/4) + dy];
+      return (x < 0 || x >= 4 || y < 0 || y >= 4) ? -1 : (x + y*4);
+    }).map(i => i == -1 ? atom("0") : a[i])
+  ]}
+
+
+const cast = (X: Tensor, T: DataType): Tensor | null =>  (dtype(X) == T) ? X:
   (T == "block") ? null:
   (T == "boolean") ? fun("($0 ? 1 : 0)", "boolean", X):
-  (X[0] == "number" && T == "color") ? fun("($0 > 3 ? 4 : $0)", "color", X):
-  (X[0] == "color" && T == "number") ? fun("($0 == 0 ? 0 : ($0-1) % 3 + 1)", "number", X):
-  (X[0] == "block" && T == "number") ? fun("($0 == 0 ? 0 : (($0+2) / 3) | 0)", "number", X):
-  (X[0] == "block" && T == "color") ? fun("($0 == 0 ? 0 : ($0-1) % 3 + 1)", "color", X):
+  (dtype(X) == "number" && T == "color") ? fun("($0 > 3 ? 4 : $0)", "color", X):
+  (dtype(X) == "color" && T == "number") ? fun("($0 == 0 ? 0 : ($0-1) % 3 + 1)", "number", X):
+  (dtype(X) == "block" && T == "number") ? fun("($0 == 0 ? 0 : (($0+2) / 3) | 0)", "number", X):
+  (dtype(X) == "block" && T == "color") ? fun("($0 == 0 ? 0 : ($0-1) % 3 + 1)", "color", X):
   null;
 
 
-const reduce = (def: Atom, alu: string, type: DataType): Fun => ([ta, ...a]:Tensor) => [type, a.reduce((acc,x)=> atom(alu, acc, x), def)]
 const eq: Fun = (a:Tensor, b:Tensor) => dtype(a) != dtype(b) ? null : fun("($0 == $1)", "boolean", a, b)
 const add: Fun = (a:Tensor, b:Tensor) => dtype(a) == "color" || dtype(b) == "color" ? null : fun("($0 + $1)", "number", cast(a, "number"), cast(b, "number"))
 const mul: Fun = (a:Tensor, b:Tensor) => dtype(a) == "color" || dtype(b) == "color" ? null : fun("($0 * $1)", "number", cast(a, "number"), cast(b, "number"))
 const and: Fun = (a:Tensor, b:Tensor) => fun("($0 && $1)", "boolean", cast(a, "boolean"), cast(b, "boolean"))
 const eq_poly: Fun = (a:Tensor, b:Tensor) => fun(dtype(a) != dtype(b) ? "0" : "($0 == $1)", "boolean", a, b)
-const sum: Fun = (a:Tensor) => dtype(a) == "color" ? null : reduce(atom("0"), "($0 + $1)", "number")(cast(a, "number"))
-const any: Fun = (a:Tensor) => reduce(atom("0"), "($0 || $1)", "boolean")(a)
-const all: Fun = (a:Tensor) => reduce(atom("1"), "($0 && $1)", "boolean")(a)
+const sum: Fun = (a:Tensor) => dtype(a) == "color" ? null : reduce(atom("0"), "($0 + $1)", "number", cast(a, "number"))
+const any: Fun = (a:Tensor) => reduce(atom("0"), "($0 || $1)", "boolean", a)
+const all: Fun = (a:Tensor) => reduce(atom("1"), "($0 && $1)", "boolean", a)
 
-const move_dir = (dx: number, dy: number) : Fun => ([dt, ...a]:Tensor) => {
-  return a.length != mat_size ? null :[dt,
-    ...range(mat_size).map(i=>{
-      let [x,y] = [i%4 + dx, Math.floor(i/4) + dy];
-      return (x < 0 || x >= 4 || y < 0 || y >= 4) ? -1 : (x + y*4);
-    }).map(i => i == -1 ? atom("0") : a[i]) 
-  ]}
 
 const chain = (...fs: Fun[]) : Tensor => {
   let go = () : Tensor =>{
@@ -62,7 +73,7 @@ const chain = (...fs: Fun[]) : Tensor => {
   return go();
 }
 
-export const compile = (rule: Fun[]) : [DataType, "matrix" | "scalar", (L: Int32Array) => Int32Array] => {
+export const compile = (rule: Fun[]) : [TensorType, (L: Int32Array) => Int32Array] => {
   let [T, ...atoms] = chain(...rule);
   let usecount = new Map<string, number>();
   let count = ([op, ...a]: Atom) => {
@@ -90,10 +101,10 @@ export const compile = (rule: Fun[]) : [DataType, "matrix" | "scalar", (L: Int32
   }
   let ret = atoms.map(raster).join(",\n");
   code = code + `return [${ret}];`;
-  return [T, atoms.length == 1 ? "scalar" : "matrix", new Function("L", code) as (L: Int32Array) => Int32Array]
+  return [T, new Function("L", code) as (L: Int32Array) => Int32Array]
 }
 
-const is_color = (x: number): Fun => (a:Tensor) => eq( cast(a, "color"), ["color", atom(x.toString())])
+const is_color = (x: number): Fun => (a:Tensor) => eq( cast(a, "color"), ["color_scalar", atom(x.toString())])
 
 export let Core : Record<string, Fun> = {
   number: (a:Tensor) => cast(a, "number"),
@@ -104,32 +115,32 @@ export let Core : Record<string, Fun> = {
   any, all, sum,
   not: (a:Tensor) => dtype(a) != "boolean" ? null : fun("(!$0)", "boolean", a),
   and, eq, add, mul,
-  "0": ()=>["number", atom("0")],
-  "1": ()=>["number", atom("1")],
-  "2": ()=>["number", atom("2")],
-  "3": ()=>["number", atom("3")],
-  x:() => ["block", ...range(mat_size).map(i=> atom(`L[${i}]`))]
+  "0": ()=>["number_scalar", atom("0")],
+  "1": ()=>["number_scalar", atom("1")],
+  "2": ()=>["number_scalar", atom("2")],
+  "3": ()=>["number_scalar", atom("3")],
+  x:() => ["block_matrix", ...range(mat_size).map(i=> atom(`L[${i}]`))]
 }
 
 const or = (a:Tensor, b:Tensor) => dtype(a) != "boolean" || dtype(b) != "boolean" ? null : fun("($0 || $1)", "boolean", a, b)
-const right = move_dir(1, 0)
-const up = move_dir(0, -1)
-const left = move_dir(-1, 0)
-const down = move_dir(0, 1)
+const right = move(1, 0)
+const up = move(0, -1)
+const left = move(-1, 0)
+const down = move(0, 1)
 export let Lang : Record<string, Fun> = {
   _eq: eq_poly,
   ...Core,
   or, right, up, left, down,
   next: (x:Tensor) => or(or(right(x), up(x)), or(left(x), down(x))),
   block: (num:Tensor, color:Tensor) => dtype(num) != "number" || dtype(color) != "color" ? null : fun("($0 == 0 ? 0 : ($0*3)-2 + $1 -1)", "block", num, color),
-  red : ()=>["color", ["1"]],
-  green : ()=>["color", ["2"]],
-  blue : ()=>["color", ["3"]],
+  red : ()=>["color_scalar", ["1"]],
+  green : ()=>["color_scalar", ["2"]],
+  blue : ()=>["color_scalar", ["3"]],
 }
 
 {
   let fields = range(10).map(_=>Int32Array.from(range(mat_size).map(_=>randint(0,9))))
-  const [T, S, F] = compile("not any and color x eq color x right color x".split(" ").map(c=>Lang[c]))
+  const [T, F] = compile("not any and color x eq color x right color x".split(" ").map(c=>Lang[c]))
   const bench = ()=>{
     const IT = 200000;
     let st = performance.now();
@@ -140,3 +151,30 @@ export let Lang : Record<string, Fun> = {
   }
   bench()
 }
+
+const permute = <T,S>(T: T[], S: S[]): [T, S][] => T.map((t:T)=>S.map((s:S)=>[t, s] as [T, S])).flat();
+
+let tensortypes = permute(["number", "color", "boolean", "block"], ["scalar", "matrix"]).map(([t, s])=>`${t}_${s}`) as TensorType[];
+
+
+const check = (rule: (Fun | "*")[]): TensorType[]=>{
+  const go = (): TensorType[] => {
+    let f = rule.shift();
+    if (f == undefined) return tensortypes;
+    if (f == "*") return tensortypes;
+
+    if (f.length == 0) return [(f())[0]];
+
+    let res : TensorType[];
+    if (f.length == 1) res =
+      go().map((t:TensorType)=> f([t])).filter(r=>r != null).map(r=>r[0]);
+    if (f.length == 2){
+      res = go().map(t1=>go().map(t2=> f([t1], [t2])).filter(r=>r != null).map(r=>r[0])).flat()
+    }
+    return Array.from(new Set(res));
+  }
+  return go();
+}
+
+print("check:",check("up".split(" ").map(c=>c == "*" ? "*" : Lang[c])))
+

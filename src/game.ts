@@ -1,6 +1,6 @@
 import { button, clear_terminal, div, h2, html, input, p, popup, print, span, table, td, tr } from "./html"
 import { Stored, Writable } from "./store";
-import {compile, Core, Fun, Lang, mat_size, randchoice, randint, range, DataType, Tensor } from "./tensor";
+import {compile, Core, Fun, Lang, mat_size, randchoice, randint, range, DataType, Tensor, TensorType, shape, dtype, ShapeType } from "./tensor";
 
 
 print("game")
@@ -37,9 +37,10 @@ const view_matrix = (dtype: DataType, data: Int32Array) => {
 }
 
 
-const viewdata = (T: DataType, S: "scalar" | "matrix", data: Int32Array) => {
-  if (S == "scalar") return div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(T, data[0]));
-  else return view_matrix(T, data);
+const viewdata = (T: TensorType, data: Int32Array) => {
+  let [d,s]  = T.split("_") as [DataType, ShapeType];
+  if (s == "scalar") return div({style: {border: "1px solid #888", width: blockSize}}, view_scalar(d, data[0]));
+  else return view_matrix(d, data);
 }
 
 
@@ -67,12 +68,12 @@ let fields = [
 
 
 const view_rule = (rule: Fun[]) => {
-  let [T, S, F] = compile(rule);
+  let [T, F] = compile(rule);
   return p(
     {style: {display: "flex", "flex-wrap": "wrap"}},
     fields.map(f => div(
       {style: {width: `calc(${blockSize} * 4)`}},
-      viewdata(T,S, F(f)))
+      viewdata(T, F(f)))
     ))
 }
 
@@ -265,8 +266,8 @@ function play(level: number){
   board.innerHTML = "";
   board.append(h2(`level ${level+1}`))
   let R = code.split(" ").map(c=>Lang[c])
-  let view_boxes = (T: DataType, S: "scalar" | "matrix", D: Int32Array[]) :HTMLTableCellElement[] =>  D.map(d => td(viewdata(T, S, d)))
-  let view_fun = (T: DataType, S: "scalar" | "matrix", F: (L: Int32Array) => Int32Array) :HTMLTableCellElement[] => view_boxes(T, S, fields.map(f => F(f)))
+  let view_boxes = (T: TensorType, D: Int32Array[]) :HTMLTableCellElement[] =>  D.map(d => td(viewdata(T, d)))
+  let view_fun = (T: TensorType, F: (L: Int32Array) => Int32Array) :HTMLTableCellElement[] => view_boxes(T, fields.map(f => F(f)))
   let row = (title: string, ...data: any[]) => tr(td(title), ...data)
 
   let row_promise = (title: string, promise: Writable<HTMLTableCellElement[]>) => {
@@ -286,18 +287,18 @@ function play(level: number){
   let check_fun = usr_fun.map(f=>[Lang.all, Lang._eq, ...R, ...f])
 
   let check = check_fun.map(f=>{
-    let [T, S, F] = compile(f)
+    let [T, F] = compile(f)
     return fields.map(f=>F(f))
   })
 
-  print("comp:",compile(R)[2](fields[0]))
+  print("comp:",compile(R)[1](fields[0]))
   let check_all = check.map(c=>c.every(d=>d.every(b=>b == 1)))
 
   board.append(table(
     row("input", ...view_fun(...compile([Lang.x]))),
     row_promise("output", usr_fun.map(f=>view_fun(...compile(f)))),
     row("expect", ...view_fun(...compile(R))),
-    row_promise("check", check.map(c=> view_boxes("boolean", "scalar", c))),
+    row_promise("check", check.map(c=> view_boxes("boolean_scalar", c))),
     row("all" , td(check_all.map(b=>view_scalar("boolean", Number(b)))))
   ),bar,button("spoiler", {onclick: ()=>popup(div(p(code)))}))
 }
@@ -308,10 +309,7 @@ let FunSizes = new Map<number, string[]>()
 Funs.forEach((v, k)=>{FunSizes.set(k.length, [...FunSizes.get(k.length) || [], v])})
 
 // const sample_word = (a: number) =>  FunSizes.get(a)[Math.floor(Math.random() * FunSizes.get(a).length)]
-
-
 // const dummy_t = (T: DataType, S: "scalar" | "matrix"): Tensor => tensor(range(S=="scalar" ? 1 : mat_size).map(_=>({tag:"source", index:0})), T);
-const permute = <T,S>(T: T[], S: S[]): [T, S][] => T.map((t:T)=>S.map((s:S)=>[t, s] as [T, S])).flat();
 // const dummys = permute(["number", "color", "boolean", "block"], ["scalar", "matrix"]).map(([t, s])=> dummy_t(t as any, s as any));
 
 
