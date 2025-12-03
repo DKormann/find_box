@@ -413,6 +413,8 @@ const create_terminal = ()=>{
     placeholder: ">>>",
     onkeydown: (e)=>{
       if (e.key == "Enter"){
+        e.preventDefault();
+        e.stopPropagation();
         let val = terminal_input.value.trim();
         if (val == "") return;
         try{
