@@ -174,58 +174,7 @@ command.subscribe(cm=>{
   view_bar(cm)
 })
 
-document.addEventListener("keydown", (e)=>{
-  
 
-  if (e.key == "Backspace"){
-    command.update(cm=>{
-      if (e.shiftKey) return {words: cm.words.slice(1), current_word: cm.current_word}
-      else{
-        if (cm.current_word.length > 0) return {words: cm.words, current_word: ""}
-        else return {words: cm.words.slice(0, -1), current_word: cm.current_word}
-      }
-    })
-    return;
-  }
-
-  command.update(cm=>{
-
-
-    let sug = suggestions(cm)
-    let don = done(cm)
-
-    const add_word = (w: string) =>{
-      cm.words = don ? [w, ...cm.words] : [...cm.words, w];
-      cm.current_word = "";
-    }
-
-    if (e.key.length == 1){
-      if (e.key == " "){
-        add_word(sug[0])
-      }else{
-        cm.current_word += e.key;
-      }
-    }
-
-    sug = suggestions(cm)
-
-    if (sug.length == 1){
-      add_word(sug[0])
-    }
-    
-    else if (sug.length == 0) cm.current_word = cm.current_word.slice(0, -1);
-    else {
-
-      while (true){
-        let nl = sug.map(k=>k.slice(cm.current_word.length, cm.current_word.length + 1))
-        if (nl.some(k => k != nl[0])) break;
-        cm.current_word += nl[0];
-      }
-    }
-    return cm;
-  }, true)
-
-})
 
 fields = []
 
@@ -280,7 +229,7 @@ function play(level: number){
     return fields.map(f=>F(f))
   })
 
-  print("comp:",compile(R)[1](fields[0]))
+  // print("comp:",compile(R)[1](fields[0]))
   let check_all = check.map(c=>c.every(d=>d.every(b=>b == 1)))
 
   board.append(table(
@@ -370,4 +319,61 @@ export const Game = div(
   button("Next", {onclick: ()=>level.update(v=>Math.min(v+1, levels.length-1), true)}),
 )
 
+
+export const start = () => {
+
+  document.body.appendChild(Game)
+
+  document.addEventListener("keydown", (e)=>{
+
+    if (e.key == "Backspace"){
+      command.update(cm=>{
+        if (e.shiftKey) return {words: cm.words.slice(1), current_word: cm.current_word}
+        else{
+          if (cm.current_word.length > 0) return {words: cm.words, current_word: ""}
+          else return {words: cm.words.slice(0, -1), current_word: cm.current_word}
+        }
+      })
+      return;
+    }
+
+    command.update(cm=>{
+
+
+      let sug = suggestions(cm)
+      let don = done(cm)
+
+      const add_word = (w: string) =>{
+        cm.words = don ? [w, ...cm.words] : [...cm.words, w];
+        cm.current_word = "";
+      }
+
+      if (e.key.length == 1){
+        if (e.key == " "){
+          add_word(sug[0])
+        }else{
+          cm.current_word += e.key;
+        }
+      }
+
+      sug = suggestions(cm)
+
+      if (sug.length == 1){
+        add_word(sug[0])
+      }
+      
+      else if (sug.length == 0) cm.current_word = cm.current_word.slice(0, -1);
+      else {
+
+        while (true){
+          let nl = sug.map(k=>k.slice(cm.current_word.length, cm.current_word.length + 1))
+          if (nl.some(k => k != nl[0])) break;
+          cm.current_word += nl[0];
+        }
+      }
+      return cm;
+    }, true)
+
+  })
+}
 

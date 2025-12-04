@@ -157,7 +157,7 @@ export let Lang : Record<string, Fun> = {
     let dt = et - st;
     print(`${Math.round(IT / dt)} k rules per second`);
   }
-  bench()
+  // bench()  
 }
 
 export const permute = <T,S>(T: T[], S: S[]): [T, S][] => T.map((t:T)=>S.map((s:S)=>[t, s] as [T, S])).flat();
@@ -185,5 +185,6 @@ export const check = (rule: (Fun | "*")[]): TensorType[]=>{
   return go();
 }
 
-print("check:",check("sum blue".split(" ").map(c=>c == "*" ? "*" : Lang[c])))
+// print("check:",check("sum blue".split(" ").map(c=>c == "*" ? "*" : Lang[c])))
+
 

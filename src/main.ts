@@ -1,5 +1,5 @@
-import { Game, level, newbar } from "./game";
-import { background, border, button, div, h2, html, p, padding, popup, style, width } from "./html";
+import { Game, level, newbar, start } from "./game";
+import { background, border, button, div, h2, html, p, padding, popup, print, style, width } from "./html";
 import { Stored } from "./store";
 
 
@@ -37,11 +37,6 @@ first_time.then(v=>{
 
 
 
+// print(()=>start())
 
-document.body.appendChild(
-  div(
-    padding("1em"),
-    Game
-  )
-)
-
+import "./wasm"
