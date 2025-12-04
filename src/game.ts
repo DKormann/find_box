@@ -230,97 +230,12 @@ document.addEventListener("keydown", (e)=>{
 fields = []
 
 const sample = (t: string) => {
-
   if (t == "number") return Math.floor(Math.random() * 3) + 1;
   if (t == "color") return ["red", "green", "blue"][Math.floor(Math.random() * 3)];
   if (t == "boolean") return Math.random() < 0.5 ? 0 : 1;
   if (t == "block") return Math.floor(Math.random() * 9) + 1;
   if (t == "direction") return ["right", "left", "up", "down"][Math.floor(Math.random() * 4)];
 }
-
-const get_word = (a:number) => Object.entries(Core).filter(([_, v]) => v.length == a)
-
-
-const type_options = (a:number): TensorType[][] => {
-  if (a == 0) return [[]]
-  if (a == 1) return tensortypes.map(t=>[t])
-  if (a == 2) return permute(tensortypes, tensortypes)
-}
-
-const _sample_words = (a:number, T:TensorType[]): [string, TensorType[][]][] =>{
-  return get_word(a)
-  .map(([w,f])=> [w,
-    type_options(a)
-    .map(t=> [t, f(...t.map(t=>[t] as Buffer))])
-    .filter(([t, b])=>b != null && T.includes(b[0]))
-    .map(([t,b])=>t) as TensorType[][]]
-  )
-  .filter(x=>x[1].length > 0) as [string, TensorType[][]][]
-}
-
-
-const _sample_rule = (d:number, T:TensorType[]): string[] | null =>{
-
-  if (T.includes("block_matrix") && Math.random() < .3) return ["x"]
-  if (d ==0) throw new Error("sample 0")
-  if (d > 1){
-
-    if (Math.random() < 0.5){
-      let options = _sample_words(2, T)
-      if (options.length == 0) return null;
-      
-      for (let i = 0; i < 10; i++){
-        let op = randchoice(options)
-        let arg1 = _sample_rule(d-1, op[1][0])
-        let arg2 = _sample_rule(d-1, op[1][1]) 
-        if (arg1 != null && arg2 != null){
-          return [op[0], ...arg1, ...arg2]
-        }
-      }
-    }else{
-      let options = _sample_words(1, T)
-      if (options.length == 0) return null;
-
-      for (let i = 0; i < 10; i++){
-        let op = randchoice(options)
-        let arg = _sample_rule(d-1, op[1][0])
-        if (arg != null) return [op[0], ...arg]
-      }
-    }
-
-    return _sample_rule(d-1, T)
-  }else{ 
-    let words = _sample_words(0, T).map(([w,_])=>w)
-    if (words.length == 0) return null
-
-    if (Math.random() > 0.5 && words.includes('x')) return ['x']
-    return [randchoice(words)[0]]
-  }
-
-}
-
-
-
-
-const sample_rule= (d=3) => {
-  for (let i = 0; i<100;i++){
-    let r = ["any", ... _sample_rule(d, ["boolean_matrix", "color_matrix", "block_matrix", "number_matrix"])]
-    print(r)
-
-    if (r != null && r.includes('x')){
-      let [t,F] = compile(r.map(w=>Core[w]))
-      let res = fields.map(f=>F(f)[0])
-      if (!res.every(x=>x == res[0])) {
-        print("FOUND")
-        print(res)
-        return r
-      }
-    }
-  }
-  print("NOT FOUND")
-  
-}
-
 
 
 
@@ -332,27 +247,7 @@ for (let i = 0; i < 16; i++) {
   fields.push(f);
 }
 
-
-
 let board = div()
-
-{
-  let r = sample_rule()
-
-  document.body.append(p(r.join(" ")))
-
-
-  document.body.append(view_rule([Core.x]))
-  document.body.append(view_rule(r.map(x=>Core[x])))
-
-  
-
-  
-}
-
-
-
-
 
 function play(level: number){
 
@@ -431,7 +326,6 @@ let levels = [
   ()=>`any and x eq number x ${sample("number")}`,
   ()=>`any and x ${sample("direction")} x`,
   ()=>`any and x ${sample("direction")} x`,
-  // ()=>sample_rule(6).join(" "),
 ]
 
 
@@ -469,10 +363,6 @@ export const Game = div(
             },
             `level ${i+1}`)
           ),
-          p(
-            "random",
-            { onclick: ()=>{level.set(levels.length - 1, true), pop.remove()}, style: {cursor: "pointer"},}
-          )
         ))
       }
     }
