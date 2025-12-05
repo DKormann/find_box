@@ -3,3 +3,4 @@ import { background, border, button, div, h2, html, p, padding, popup, print, st
 import { Stored } from "./store";
 
 import "./wasm"
+import "./fun"

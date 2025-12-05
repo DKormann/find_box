@@ -218,7 +218,6 @@ const preview = (x:any) : HTMLElement=> {
   t == "function" ? x.toString() :
   t == "htmlElement" ? (x.tagName + x.textContent) :
   t == "object" ? Object.entries(x).slice(0,3).map(([key, value])=>key + ": " + String(value)).join(", ") :
-  // t == "repr" ? `${x.tag}(${Object.entries(x.args).map(([key, value])=>key + " = " + String(value)).join(", ")})` :
   String(x)
 
   if (t != "string") inner = inner.replaceAll("\n", "")

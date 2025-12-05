@@ -1,5 +1,5 @@
 import { print } from "./html";
-import { UOp } from "./uop"
+import { uop, UOp } from "./uop"
 
 
 export const repeat = <T> (length:number, ...value:T[]) : Array<T> => Array.from({length}, _=>value).flat()
@@ -49,8 +49,8 @@ export const compile = async (
   return (await WebAssembly.instantiate(buf.buffer)).instance.exports.f as (x:number, y:number) => number 
 }
 
-let c = UOp.add(UOp.load(0), UOp.load(1))
+let c = uop.add(uop.load(0), uop.load(1))
 
 let F = await compile(2, [c])
-print(F(2,3))
+// print(F(2,3))
 
